@@ -16,6 +16,6 @@ class BulaLocalizada:
     numero_registro: str
     expediente: str
     id_bula_profissional: str
-    data_atualizacao: datetime
-    data_atualizacao_original: str
+    data_publicacao: datetime
+    data_publicacao_original: str
     id_produto: str = ""

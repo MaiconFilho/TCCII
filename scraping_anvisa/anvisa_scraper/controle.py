@@ -23,8 +23,8 @@ class ControleColeta:
                     expediente TEXT,
                     id_produto TEXT,
                     id_bula_profissional TEXT,
-                    data_atualizacao_anvisa TIMESTAMPTZ,
-                    data_atualizacao_original TEXT,
+                    data_publicacao_anvisa TIMESTAMPTZ,
+                    data_publicacao_original TEXT,
                     status TEXT NOT NULL,
                     tentativas INTEGER NOT NULL DEFAULT 0,
                     caminho_pdf TEXT,
@@ -39,6 +39,56 @@ class ControleColeta:
                 """
             )
             cursor.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'bulas'
+                          AND column_name = 'data_atualizacao_anvisa'
+                    ) AND NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'bulas'
+                          AND column_name = 'data_atualizacao_base_anvisa'
+                    ) THEN
+                        ALTER TABLE bulas
+                            RENAME COLUMN data_atualizacao_anvisa
+                            TO data_atualizacao_base_anvisa;
+                    END IF;
+
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'bulas'
+                          AND column_name = 'data_atualizacao_original'
+                    ) AND NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'bulas'
+                          AND column_name = 'data_atualizacao_base_original'
+                    ) THEN
+                        ALTER TABLE bulas
+                            RENAME COLUMN data_atualizacao_original
+                            TO data_atualizacao_base_original;
+                    END IF;
+                END;
+                $$;
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE bulas
+                    ADD COLUMN IF NOT EXISTS data_publicacao_anvisa TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS data_publicacao_original TEXT
+                """
+            )
+            cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_bulas_status ON bulas (status)"
             )
             for comentario in (
@@ -46,6 +96,10 @@ class ControleColeta:
                 "'Controle da coleta da bula profissional mais recente por nome de medicamento.'",
                 "COMMENT ON COLUMN bulas.nome_normalizado IS "
                 "'Chave normalizada usada para impedir mais de uma bula por nome.'",
+                "COMMENT ON COLUMN bulas.data_publicacao_anvisa IS "
+                "'Data de publicação da bula no Bulário Eletrônico, obtida do campo data da API.'",
+                "COMMENT ON COLUMN bulas.data_publicacao_original IS "
+                "'Valor original do campo data retornado pela API do Bulário.'",
                 "COMMENT ON COLUMN bulas.tempo_consulta_segundos IS "
                 "'Tempo em segundos da consulta paginada e seleção da bula mais recente, medido com relógio monotônico.'",
                 "COMMENT ON COLUMN bulas.tempo_download_segundos IS "
@@ -62,7 +116,7 @@ class ControleColeta:
         with self.conexao.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT status, caminho_pdf
+                SELECT status, caminho_pdf, data_publicacao_anvisa
                 FROM bulas
                 WHERE nome_normalizado = %s
                 """,
@@ -71,7 +125,11 @@ class ControleColeta:
             linha = cursor.fetchone()
         if not linha or linha["status"] != "CONCLUIDO":
             return False
-        return bool(linha["caminho_pdf"] and Path(linha["caminho_pdf"]).exists())
+        return bool(
+            linha["data_publicacao_anvisa"] is not None
+            and linha["caminho_pdf"]
+            and Path(linha["caminho_pdf"]).exists()
+        )
 
     def iniciar(self, medicamento: MedicamentoParaColeta) -> None:
         with self.conexao.cursor() as cursor:
@@ -92,6 +150,8 @@ class ControleColeta:
                         EXCLUDED.quantidade_registros_planilha,
                     status = 'PROCESSANDO',
                     tentativas = bulas.tentativas + 1,
+                    data_publicacao_anvisa = NULL,
+                    data_publicacao_original = NULL,
                     tempo_consulta_segundos = NULL,
                     tempo_download_segundos = NULL,
                     tempo_total_segundos = NULL,
@@ -127,8 +187,8 @@ class ControleColeta:
                     expediente = %s,
                     id_produto = %s,
                     id_bula_profissional = %s,
-                    data_atualizacao_anvisa = %s,
-                    data_atualizacao_original = %s,
+                    data_publicacao_anvisa = %s,
+                    data_publicacao_original = %s,
                     status = %s,
                     mensagem = %s,
                     caminho_pdf = %s,
@@ -146,8 +206,8 @@ class ControleColeta:
                     bula.expediente if bula else None,
                     bula.id_produto if bula else None,
                     bula.id_bula_profissional if bula else None,
-                    bula.data_atualizacao if bula else None,
-                    bula.data_atualizacao_original if bula else None,
+                    bula.data_publicacao if bula else None,
+                    bula.data_publicacao_original if bula else None,
                     status,
                     mensagem[:2000],
                     caminho_pdf or None,

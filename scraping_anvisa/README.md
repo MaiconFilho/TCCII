@@ -2,7 +2,7 @@
 
 Este projeto lê a planilha `StatusBulasANVISA_formatada_2026-08-26.xlsx`,
 agrupa as linhas pelo **nome normalizado do medicamento** e baixa somente uma
-bula profissional para cada nome: aquela que possui a **data de atualização
+bula profissional para cada nome: aquela que possui a **data de publicação
 mais recente** no Bulário Eletrônico da Anvisa.
 
 ## Regra de seleção
@@ -14,8 +14,11 @@ Para cada nome único da planilha, a aplicação:
 3. mantém apenas resultados cujo nome normalizado seja exatamente igual ao
    pesquisado;
 4. descarta resultados sem bula profissional;
-5. interpreta o campo `dataAtualizacao`;
+5. interpreta o campo `data`, exibido no site como **Data de Publicação**;
 6. seleciona a maior data e baixa somente aquela bula.
+
+O campo `dataAtualizacao` informa a atualização geral da base do Bulário e não
+é usado para selecionar nem datar as bulas.
 
 Diferenças de maiúsculas, minúsculas, acentuação e espaços não criam nomes
 duplicados. Por exemplo, `Finasterida` e `FINASTERIDA` são controladas pela
@@ -24,7 +27,7 @@ mesma chave `finasterida`.
 Na planilha incluída, as 8.808 linhas são reduzidas para 5.895 nomes únicos.
 Finasterida aparece 16 vezes, mas gera somente uma coleta e um PDF.
 
-Quando duas bulas possuem exatamente a mesma data de atualização, o expediente
+Quando duas bulas possuem exatamente a mesma data de publicação, o expediente
 e o registro são utilizados como desempate determinístico.
 
 ## Por que o Selenium
@@ -130,7 +133,7 @@ A chave primária da tabela é `nome_normalizado`. Para cada nome, são gravados
 - quantidade de ocorrências daquele nome na planilha;
 - registro, expediente e ID do produto selecionado;
 - ID protegido da bula profissional;
-- data de atualização usada na seleção;
+- data de publicação usada na seleção;
 - status, tentativas e mensagem de erro;
 - caminho, tamanho e hash SHA-256 do PDF.
 - tempo da consulta, do download e do processamento total.
@@ -139,7 +142,7 @@ Os campos de métricas possuem comentários gravados no catálogo do PostgreSQL.
 As definições são:
 
 - `tempo_consulta_segundos`: paginação, leitura das respostas e seleção da bula
-  com maior `dataAtualizacao`;
+  com maior data de publicação (`data` na API);
 - `tempo_download_segundos`: transferência e recebimento do PDF;
 - `tempo_total_segundos`: consulta, verificação de reaproveitamento ou download,
   validação e salvamento do arquivo.
@@ -166,7 +169,7 @@ Status possíveis:
 
 - `CONCLUIDO`
 - `NOME_NAO_ENCONTRADO`
-- `DATA_ATUALIZACAO_INVALIDA`
+- `DATA_PUBLICACAO_INVALIDA`
 - `SEM_BULA_PROFISSIONAL`
 - `ERRO_RESPOSTA`
 - `ERRO_INESPERADO`
@@ -178,6 +181,12 @@ O relatório legível é exportado para `controle/resultado.csv`.
 
 Se a execução for interrompida, execute novamente o mesmo comando. Nomes
 concluídos serão ignorados e os demais serão tentados novamente.
+
+Ao iniciar esta versão pela primeira vez sobre um banco criado pela versão 2.2,
+a aplicação preserva as antigas datas como atualização da base e cria os campos
+de data de publicação. Como os registros antigos ainda não possuem a publicação
+correta, eles são reprocessados e os PDFs existentes são substituídos de forma
+atômica. Não é necessário apagar previamente o banco nem a pasta `pdfs`.
 
 ```cmd
 python main.py --inicio 0 --limite 4000 --intervalo 10 --sem-pausa-inicial

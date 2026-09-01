@@ -13,7 +13,7 @@ WHERE status = 'CONCLUIDO';
 SELECT
     nome_pesquisado,
     numero_registro,
-    data_atualizacao_anvisa,
+    data_publicacao_anvisa,
     tempo_consulta_segundos,
     tempo_download_segundos,
     tempo_total_segundos

@@ -14,8 +14,12 @@ class MedicamentoNaoEncontradoError(ErroColetaAnvisa):
     """Nenhum resultado com nome exato foi encontrado no Bulário."""
 
 
-class DataAtualizacaoInvalidaError(ErroColetaAnvisa):
-    """As bulas encontradas não possuem uma data de atualização comparável."""
+class DataPublicacaoInvalidaError(ErroColetaAnvisa):
+    """As bulas encontradas não possuem uma data de publicação comparável."""
+
+
+# Compatibilidade com importações da versão 2.2.
+DataAtualizacaoInvalidaError = DataPublicacaoInvalidaError
 
 
 class SemBulaProfissionalError(ErroColetaAnvisa):

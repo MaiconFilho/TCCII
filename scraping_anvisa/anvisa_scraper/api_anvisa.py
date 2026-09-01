@@ -13,7 +13,7 @@ else:
 
 from .erros import (
     BloqueioAnvisaError,
-    DataAtualizacaoInvalidaError,
+    DataPublicacaoInvalidaError,
     MedicamentoNaoEncontradoError,
     RespostaAnvisaError,
     SemBulaProfissionalError,
@@ -106,7 +106,7 @@ def montar_url_consulta(nome_produto: str, pagina: int = 1) -> str:
     return f"{BASE_URL}{ENDPOINT_CONSULTA}?{parametros}"
 
 
-def interpretar_data_atualizacao(valor: object) -> datetime | None:
+def interpretar_data_publicacao(valor: object) -> datetime | None:
     texto = str(valor or "").strip()
     if not texto:
         return None
@@ -130,7 +130,11 @@ def interpretar_data_atualizacao(valor: object) -> datetime | None:
 
     if data.tzinfo is None:
         return data.replace(tzinfo=timezone.utc)
-    return data.astimezone(timezone.utc)
+    return data
+
+
+# Compatibilidade com importações da versão 2.2.
+interpretar_data_atualizacao = interpretar_data_publicacao
 
 
 def _consultar_pagina(
@@ -215,17 +219,25 @@ def consultar_mais_recente_por_nome(
 
     candidatas: list[tuple[datetime, tuple[str, str], dict[str, Any], str]] = []
     for item in com_bula:
-        data_original = str(item.get("dataAtualizacao") or "").strip()
-        data = interpretar_data_atualizacao(data_original)
-        if data is not None:
-            candidatas.append((data, _chave_desempate(item), item, data_original))
+        data_publicacao_original = str(item.get("data") or "").strip()
+        data_publicacao = interpretar_data_publicacao(data_publicacao_original)
+        if data_publicacao is not None:
+            candidatas.append(
+                (
+                    data_publicacao,
+                    _chave_desempate(item),
+                    item,
+                    data_publicacao_original,
+                )
+            )
 
     if not candidatas:
-        raise DataAtualizacaoInvalidaError(
-            f"As bulas de '{medicamento.nome_produto}' não possuem dataAtualizacao válida."
+        raise DataPublicacaoInvalidaError(
+            f"As bulas de '{medicamento.nome_produto}' não possuem "
+            "data de publicação válida no campo 'data'."
         )
 
-    data_atualizacao, _, resultado, data_original = max(
+    data_publicacao, _, resultado, data_publicacao_original = max(
         candidatas,
         key=lambda candidata: (candidata[0], candidata[1]),
     )
@@ -235,8 +247,8 @@ def consultar_mais_recente_por_nome(
         numero_registro=_somente_digitos(resultado.get("numeroRegistro")),
         expediente=_somente_digitos(resultado.get("expediente")),
         id_bula_profissional=str(resultado["idBulaProfissionalProtegido"]).strip(),
-        data_atualizacao=data_atualizacao,
-        data_atualizacao_original=data_original,
+        data_publicacao=data_publicacao,
+        data_publicacao_original=data_publicacao_original,
         id_produto=_somente_digitos(resultado.get("idProduto")),
     )
 

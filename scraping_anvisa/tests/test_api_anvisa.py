@@ -1,12 +1,12 @@
 import base64
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from anvisa_scraper.api_anvisa import (
     baixar_pdf,
     consultar_mais_recente_por_nome,
-    interpretar_data_atualizacao,
+    interpretar_data_publicacao,
     montar_url_consulta,
 )
 from anvisa_scraper.modelos import BulaLocalizada, MedicamentoParaColeta
@@ -35,7 +35,7 @@ class TestConsultaPorNome(unittest.TestCase):
         self.assertIn("count=10", url)
         self.assertIn("page=2", url)
 
-    def test_seleciona_bula_com_data_atualizacao_mais_recente(self) -> None:
+    def test_seleciona_bula_com_data_de_publicacao_mais_recente(self) -> None:
         pagina_1 = {
             "totalPages": 2,
             "content": [
@@ -44,7 +44,8 @@ class TestConsultaPorNome(unittest.TestCase):
                     "numeroRegistro": "111",
                     "nomeProduto": "FINASTERIDA",
                     "expediente": "100",
-                    "dataAtualizacao": "01/03/2025",
+                    "data": "2024-03-01T09:00:00.000-0300",
+                    "dataAtualizacao": "2026-09-01T00:00:00.000-0300",
                     "idBulaProfissionalProtegido": "antiga",
                 },
                 {
@@ -52,7 +53,8 @@ class TestConsultaPorNome(unittest.TestCase):
                     "numeroRegistro": "999",
                     "nomeProduto": "FINASTERIDA + OUTRO",
                     "expediente": "900",
-                    "dataAtualizacao": "01/01/2026",
+                    "data": "2026-01-01T09:00:00.000-0300",
+                    "dataAtualizacao": "2026-09-01T00:00:00.000-0300",
                     "idBulaProfissionalProtegido": "nao-exata",
                 },
             ],
@@ -65,7 +67,8 @@ class TestConsultaPorNome(unittest.TestCase):
                     "numeroRegistro": "222",
                     "nomeProduto": "Finasterida",
                     "expediente": "200",
-                    "dataAtualizacao": "15/08/2026",
+                    "data": "2025-08-15T10:30:00.000-0300",
+                    "dataAtualizacao": "2026-09-01T00:00:00.000-0300",
                     "idBulaProfissionalProtegido": "recente",
                 }
             ],
@@ -83,11 +86,26 @@ class TestConsultaPorNome(unittest.TestCase):
 
         self.assertEqual(bula.id_bula_profissional, "recente")
         self.assertEqual(bula.numero_registro, "222")
-        self.assertEqual(bula.data_atualizacao_original, "15/08/2026")
+        self.assertEqual(
+            bula.data_publicacao_original,
+            "2025-08-15T10:30:00.000-0300",
+        )
+        self.assertEqual(bula.data_publicacao.strftime("%d/%m/%Y"), "15/08/2025")
 
-    def test_data_iso_e_convertida_para_utc(self) -> None:
-        data = interpretar_data_atualizacao("2026-08-15T10:30:00-03:00")
-        self.assertEqual(data, datetime(2026, 8, 15, 13, 30, tzinfo=timezone.utc))
+    def test_data_iso_preserva_data_e_fuso_da_publicacao(self) -> None:
+        data = interpretar_data_publicacao("2025-04-25T10:18:58.000-0300")
+        self.assertEqual(
+            data,
+            datetime(
+                2025,
+                4,
+                25,
+                10,
+                18,
+                58,
+                tzinfo=timezone(-timedelta(hours=3)),
+            ),
+        )
 
     def test_valida_assinatura_pdf(self) -> None:
         conteudo = b"%PDF-1.7\nconteudo de teste"
@@ -106,8 +124,8 @@ class TestConsultaPorNome(unittest.TestCase):
             numero_registro="123",
             expediente="456",
             id_bula_profissional="id-protegido",
-            data_atualizacao=datetime(2026, 8, 15, tzinfo=timezone.utc),
-            data_atualizacao_original="15/08/2026",
+            data_publicacao=datetime(2025, 8, 15, tzinfo=timezone.utc),
+            data_publicacao_original="15/08/2025",
         )
 
         self.assertEqual(baixar_pdf(navegador, bula), conteudo)

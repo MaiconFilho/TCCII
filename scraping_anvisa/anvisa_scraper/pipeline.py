@@ -13,7 +13,7 @@ else:
 from .api_anvisa import baixar_pdf, consultar_mais_recente_por_nome
 from .erros import (
     BloqueioAnvisaError,
-    DataAtualizacaoInvalidaError,
+    DataPublicacaoInvalidaError,
     ErroColetaAnvisa,
     MedicamentoNaoEncontradoError,
     SemBulaProfissionalError,
@@ -23,7 +23,7 @@ from .modelos import BulaLocalizada, MedicamentoParaColeta
 
 MAPA_STATUS = {
     MedicamentoNaoEncontradoError: "NOME_NAO_ENCONTRADO",
-    DataAtualizacaoInvalidaError: "DATA_ATUALIZACAO_INVALIDA",
+    DataPublicacaoInvalidaError: "DATA_PUBLICACAO_INVALIDA",
     SemBulaProfissionalError: "SEM_BULA_PROFISSIONAL",
 }
 
@@ -84,8 +84,9 @@ def processar_lote(
             finally:
                 tempo_consulta_segundos = time.perf_counter() - inicio_consulta
             print(
-                f"{prefixo} - bula mais recente: "
-                f"{bula.data_atualizacao_original}, registro {bula.numero_registro}."
+                f"{prefixo} - bula com publicação mais recente: "
+                f"{bula.data_publicacao.strftime('%d/%m/%Y')}, "
+                f"registro {bula.numero_registro}."
             )
             inicio_download = time.perf_counter()
             try:
