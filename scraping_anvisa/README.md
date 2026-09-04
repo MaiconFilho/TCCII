@@ -61,7 +61,6 @@ controle/           resultado.csv
 main.py             entrada do programa
 .env.example        modelo da conexão PostgreSQL
 criar_banco.sql     criação inicial do banco
-remover_colunas_desnecessarias.sql  migração de esquemas antigos
 consultar_metricas.sql consultas prontas para análise dos tempos
 ```
 
@@ -78,10 +77,6 @@ CREATE DATABASE "TCC";
 
 A aplicação cria e documenta automaticamente a tabela `bulas` dentro desse
 banco. O nome é minúsculo e pode ser usado sem aspas nas consultas SQL.
-
-Se a tabela tiver sido criada por uma versão anterior do projeto, conecte o
-Query Tool ao banco `TCC` e execute `remover_colunas_desnecessarias.sql` uma vez.
-Essa migração remove somente as quatro colunas obsoletas e não usa `CASCADE`.
 
 ## 2. Configurar a conexão
 
