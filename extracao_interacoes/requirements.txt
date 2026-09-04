@@ -1,0 +1,8 @@
+PyMuPDF
+torch
+transformers>=4.51
+accelerate
+safetensors
+psycopg[binary]
+python-dotenv
+pydantic

@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  tests:
+  testes-scraping:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,4 +31,34 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Executar testes
+        run: python -m unittest discover -s tests -v
+
+  testes-extracao-interacoes:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extracao_interacoes
+
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            scraping_anvisa/requirements.txt
+            extracao_interacoes/requirements.txt
+
+      - name: Instalar dependências dos testes isolados
+        run: >-
+          python -m pip install
+          PyMuPDF
+          pydantic
+          "psycopg[binary]"
+          python-dotenv
+
+      - name: Executar testes sem modelo, GPU ou PostgreSQL real
         run: python -m unittest discover -s tests -v

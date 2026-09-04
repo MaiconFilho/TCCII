@@ -18,6 +18,12 @@ __pycache__/
 controle/*.csv
 scraping_anvisa/controle/*.csv
 scraping_anvisa/pdfs/*.pdf
+extracao_interacoes/relatorios/*.csv
+.cache/
+huggingface/
+extracao_interacoes/modelos_hf/
+*.safetensors
+pytorch_model*.bin
 .vscode/
 .idea/
 Thumbs.db

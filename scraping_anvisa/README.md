@@ -219,8 +219,9 @@ começa um novo controle por nome.
 --todos                  seleciona todos os nomes e exige confirmação
 ```
 
-## Próxima etapa do TCC
+## Etapa seguinte do TCC
 
-Este pacote termina no download validado dos PDFs. A próxima etapa será extrair
-o tópico `6. INTERAÇÕES MEDICAMENTOSAS`, dividir o texto em chunks e gravá-lo
-no PostgreSQL com pgvector.
+Este pacote termina no download validado dos PDFs. A extração das interações
+medicamentosas foi implementada separadamente em `../extracao_interacoes`.
+Ela não presume um tópico de número fixo e, nesta versão, não utiliza chunks,
+embeddings nem pgvector.
