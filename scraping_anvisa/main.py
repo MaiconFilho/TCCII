@@ -39,6 +39,21 @@ def criar_argumentos() -> argparse.Namespace:
         default=5.0,
         help="Pausa entre medicamentos; mínimo aplicado: 3 segundos.",
     )
+    parser.add_argument(
+        "--espera-429",
+        type=float,
+        default=60.0,
+        help=(
+            "Espera mínima após HTTP 429 antes do próximo item; "
+            "mínimo aplicado: 5 segundos."
+        ),
+    )
+    parser.add_argument(
+        "--max-429-consecutivos",
+        type=int,
+        default=3,
+        help="Quantidade de HTTP 429 consecutivos antes de interromper o lote.",
+    )
     parser.add_argument("--headless", action="store_true")
     parser.add_argument(
         "--sem-pausa-inicial",
@@ -80,6 +95,8 @@ def main() -> int:
         selecionados = medicamentos[args.inicio : args.inicio + args.limite]
 
     intervalo = max(3.0, args.intervalo)
+    espera_429 = max(5.0, args.espera_429)
+    max_429_consecutivos = max(1, args.max_429_consecutivos)
     load_dotenv(BASE_PROJETO / ".env")
     dsn = os.getenv("DATABASE_URL", "").strip()
     if not dsn:
@@ -113,13 +130,15 @@ def main() -> int:
             controle=controle,
             pasta_pdfs=BASE_PROJETO / "pdfs",
             intervalo_segundos=intervalo,
+            espera_limite_segundos=espera_429,
+            max_limites_consecutivos=max_429_consecutivos,
         )
         print("\nResumo:")
         for chave, valor in resumo.items():
             print(f"- {chave}: {valor}")
     except BloqueioAnvisaError:
         codigo_saida = 3
-        print("\nExecução encerrada por bloqueio ou limitação da Anvisa.")
+        print("\nExecução encerrada por bloqueio ou limitação persistente da Anvisa.")
     finally:
         controle.exportar_csv(BASE_PROJETO / "controle" / "resultado.csv")
         controle.fechar()

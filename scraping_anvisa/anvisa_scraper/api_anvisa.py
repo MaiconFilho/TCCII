@@ -1,6 +1,9 @@
 import base64
 import json
+import math
+import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
@@ -14,6 +17,7 @@ else:
 from .erros import (
     BloqueioAnvisaError,
     DataPublicacaoInvalidaError,
+    LimiteRequisicoesAnvisaError,
     MedicamentoNaoEncontradoError,
     RespostaAnvisaError,
     SemBulaProfissionalError,
@@ -27,6 +31,7 @@ ENDPOINT_CONSULTA = "/api/consulta/bulario"
 ENDPOINT_PDF = "/api/consulta/medicamentos/arquivo/bula/parecer/{id}/?Authorization="
 QUANTIDADE_POR_PAGINA = 10
 LIMITE_PAGINAS = 200
+INTERVALO_ENTRE_PAGINAS_SEGUNDOS = 1.0
 
 
 SCRIPT_FETCH_TEXTO = r"""
@@ -43,6 +48,7 @@ fetch(url, {
   .then(async (resposta) => done({
     status: resposta.status,
     contentType: resposta.headers.get("content-type") || "",
+    retryAfter: resposta.headers.get("retry-after") || "",
     body: await resposta.text()
   }))
   .catch((erro) => done({status: 0, error: String(erro)}));
@@ -72,6 +78,7 @@ fetch(url, {
     done({
       status: resposta.status,
       contentType: resposta.headers.get("content-type") || "",
+      retryAfter: resposta.headers.get("retry-after") || "",
       base64: btoa(binario)
     });
   })
@@ -79,12 +86,38 @@ fetch(url, {
 """
 
 
+def _interpretar_retry_after(valor: object) -> float | None:
+    texto = str(valor or "").strip()
+    if not texto:
+        return None
+    try:
+        segundos = float(texto)
+    except ValueError:
+        try:
+            instante = parsedate_to_datetime(texto)
+            if instante.tzinfo is None:
+                instante = instante.replace(tzinfo=timezone.utc)
+            segundos = (instante - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if segundos <= 0:
+        return None
+    return float(math.ceil(segundos))
+
+
 def _validar_status(resposta: dict[str, Any], operacao: str) -> None:
     status = int(resposta.get("status") or 0)
-    if status in {403, 429}:
+    if status == 403:
         raise BloqueioAnvisaError(
             f"A Anvisa respondeu HTTP {status} durante {operacao}. "
             "A execução foi interrompida para não insistir no bloqueio."
+        )
+    if status == 429:
+        raise LimiteRequisicoesAnvisaError(
+            f"A Anvisa respondeu HTTP 429 durante {operacao}.",
+            retry_after_segundos=_interpretar_retry_after(
+                resposta.get("retryAfter")
+            ),
         )
     if status != 200:
         detalhe = resposta.get("error") or resposta.get("body", "")[:300]
@@ -187,11 +220,11 @@ def consultar_mais_recente_por_nome(
 
     resultados: list[dict[str, Any]] = []
     for pagina in range(1, total_paginas + 1):
-        dados = primeira_pagina if pagina == 1 else _consultar_pagina(
-            navegador,
-            medicamento,
-            pagina,
-        )
+        if pagina == 1:
+            dados = primeira_pagina
+        else:
+            time.sleep(INTERVALO_ENTRE_PAGINAS_SEGUNDOS)
+            dados = _consultar_pagina(navegador, medicamento, pagina)
         conteudo = dados.get("content") or []
         if not isinstance(conteudo, list):
             raise RespostaAnvisaError("O campo 'content' da consulta não é uma lista.")
@@ -217,17 +250,16 @@ def consultar_mais_recente_por_nome(
             f"'{medicamento.nome_produto}' não possui bula profissional disponível."
         )
 
-    candidatas: list[tuple[datetime, tuple[str, str], dict[str, Any], str]] = []
+    candidatas: list[tuple[datetime, tuple[str, str], dict[str, Any]]] = []
     for item in com_bula:
-        data_publicacao_original = str(item.get("data") or "").strip()
-        data_publicacao = interpretar_data_publicacao(data_publicacao_original)
+        valor_data_publicacao = str(item.get("data") or "").strip()
+        data_publicacao = interpretar_data_publicacao(valor_data_publicacao)
         if data_publicacao is not None:
             candidatas.append(
                 (
                     data_publicacao,
                     _chave_desempate(item),
                     item,
-                    data_publicacao_original,
                 )
             )
 
@@ -237,7 +269,7 @@ def consultar_mais_recente_por_nome(
             "data de publicação válida no campo 'data'."
         )
 
-    data_publicacao, _, resultado, data_publicacao_original = max(
+    data_publicacao, _, resultado = max(
         candidatas,
         key=lambda candidata: (candidata[0], candidata[1]),
     )
@@ -248,7 +280,6 @@ def consultar_mais_recente_por_nome(
         expediente=_somente_digitos(resultado.get("expediente")),
         id_bula_profissional=str(resultado["idBulaProfissionalProtegido"]).strip(),
         data_publicacao=data_publicacao,
-        data_publicacao_original=data_publicacao_original,
         id_produto=_somente_digitos(resultado.get("idProduto")),
     )
 

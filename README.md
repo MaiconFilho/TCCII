@@ -35,8 +35,13 @@ e o registro são utilizados como desempate determinístico.
 Chamadas diretas com `curl` e clientes HTTP foram bloqueadas pelo Cloudflare,
 enquanto o acesso por uma sessão pública normal do Chrome funcionou. O Selenium
 abre o Bulário e executa as chamadas `fetch` dentro do contexto dessa sessão.
-O programa não resolve CAPTCHA, não copia tokens e encerra a coleta ao receber
-HTTP `403` ou `429`.
+O programa não resolve CAPTCHA nem copia tokens. Um HTTP `403` encerra a coleta.
+Um HTTP `429` isolado registra o item como limitado, aguarda o tempo informado
+pela Anvisa (ou 60 segundos) e segue para o próximo. Três `429` consecutivos
+interrompem o lote para não insistir contra a limitação do serviço.
+
+Consultas com muitas páginas recebem uma pausa de um segundo entre páginas para
+reduzir rajadas de requisições.
 
 O modo headless foi bloqueado nos testes reais. Use o Chrome visível e minimize
 a janela se necessário.
@@ -56,6 +61,7 @@ controle/           resultado.csv
 main.py             entrada do programa
 .env.example        modelo da conexão PostgreSQL
 criar_banco.sql     criação inicial do banco
+remover_colunas_desnecessarias.sql  migração de esquemas antigos
 consultar_metricas.sql consultas prontas para análise dos tempos
 ```
 
@@ -72,6 +78,10 @@ CREATE DATABASE "TCC";
 
 A aplicação cria e documenta automaticamente a tabela `bulas` dentro desse
 banco. O nome é minúsculo e pode ser usado sem aspas nas consultas SQL.
+
+Se a tabela tiver sido criada por uma versão anterior do projeto, conecte o
+Query Tool ao banco `TCC` e execute `remover_colunas_desnecessarias.sql` uma vez.
+Essa migração remove somente as quatro colunas obsoletas e não usa `CASCADE`.
 
 ## 2. Configurar a conexão
 
@@ -129,7 +139,7 @@ sobre a lista de **nomes únicos**, não sobre as 8.808 linhas originais.
 
 A chave primária da tabela é `nome_normalizado`. Para cada nome, são gravados:
 
-- nome pesquisado e nome retornado pela Anvisa;
+- nome normalizado e nome retornado pela Anvisa;
 - quantidade de ocorrências daquele nome na planilha;
 - registro, expediente e ID do produto selecionado;
 - ID protegido da bula profissional;
@@ -151,7 +161,7 @@ Exemplo para consultar as métricas:
 
 ```sql
 SELECT
-    nome_pesquisado,
+    nome_normalizado,
     tempo_consulta_segundos,
     tempo_download_segundos,
     tempo_total_segundos
@@ -173,6 +183,7 @@ Status possíveis:
 - `SEM_BULA_PROFISSIONAL`
 - `ERRO_RESPOSTA`
 - `ERRO_INESPERADO`
+- `LIMITE_REQUISICOES`
 - `INTERROMPIDO_BLOQUEIO`
 
 O relatório legível é exportado para `controle/resultado.csv`.
@@ -182,11 +193,13 @@ O relatório legível é exportado para `controle/resultado.csv`.
 Se a execução for interrompida, execute novamente o mesmo comando. Nomes
 concluídos serão ignorados e os demais serão tentados novamente.
 
-Ao iniciar esta versão pela primeira vez sobre um banco criado pela versão 2.2,
-a aplicação preserva as antigas datas como atualização da base e cria os campos
-de data de publicação. Como os registros antigos ainda não possuem a publicação
-correta, eles são reprocessados e os PDFs existentes são substituídos de forma
-atômica. Não é necessário apagar previamente o banco nem a pasta `pdfs`.
+Registros com status `CONCLUIDO` e PDF existente são sempre ignorados, sem exigir
+uma nova consulta. Se uma falha anterior removeu o caminho do banco, mas o PDF
+válido ainda existe com o nome determinístico esperado, a aplicação recupera o
+arquivo no PostgreSQL e também evita um novo download.
+
+Somente a data de publicação usada para selecionar a bula mais recente é gravada
+no banco. Os valores auxiliares originais retornados pela API não são persistidos.
 
 ```cmd
 python main.py --inicio 0 --limite 4000 --intervalo 10 --sem-pausa-inicial
@@ -204,6 +217,8 @@ começa um novo controle por nome.
 --inicio N               índice inicial da lista de nomes únicos
 --limite N               quantidade de nomes do lote
 --intervalo SEGUNDOS     pausa entre nomes; mínimo aplicado: 3
+--espera-429 SEGUNDOS    espera mínima após um HTTP 429; padrão: 60
+--max-429-consecutivos N interrompe após N respostas 429 seguidas; padrão: 3
 --headless               executa sem janela, mas foi bloqueado pela Anvisa
 --sem-pausa-inicial      não pede ENTER após abrir o site
 --todos                  seleciona todos os nomes e exige confirmação

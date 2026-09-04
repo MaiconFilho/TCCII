@@ -11,7 +11,7 @@ WHERE status = 'CONCLUIDO';
 
 -- Tempos por medicamento, do mais demorado para o mais rápido.
 SELECT
-    nome_pesquisado,
+    nome_normalizado,
     numero_registro,
     data_publicacao_anvisa,
     tempo_consulta_segundos,

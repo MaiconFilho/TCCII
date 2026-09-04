@@ -2,12 +2,19 @@ import base64
 import json
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from anvisa_scraper.api_anvisa import (
+    INTERVALO_ENTRE_PAGINAS_SEGUNDOS,
+    _validar_status,
     baixar_pdf,
     consultar_mais_recente_por_nome,
     interpretar_data_publicacao,
     montar_url_consulta,
+)
+from anvisa_scraper.erros import (
+    BloqueioAnvisaError,
+    LimiteRequisicoesAnvisaError,
 )
 from anvisa_scraper.modelos import BulaLocalizada, MedicamentoParaColeta
 
@@ -82,15 +89,27 @@ class TestConsultaPorNome(unittest.TestCase):
             quantidade_registros_planilha=3,
         )
 
-        bula = consultar_mais_recente_por_nome(navegador, medicamento)
+        with patch("anvisa_scraper.api_anvisa.time.sleep") as esperar:
+            bula = consultar_mais_recente_por_nome(navegador, medicamento)
 
         self.assertEqual(bula.id_bula_profissional, "recente")
         self.assertEqual(bula.numero_registro, "222")
-        self.assertEqual(
-            bula.data_publicacao_original,
-            "2025-08-15T10:30:00.000-0300",
-        )
         self.assertEqual(bula.data_publicacao.strftime("%d/%m/%Y"), "15/08/2025")
+        esperar.assert_called_once_with(INTERVALO_ENTRE_PAGINAS_SEGUNDOS)
+
+    def test_429_informa_tempo_de_espera_sem_virar_bloqueio_403(self) -> None:
+        with self.assertRaises(LimiteRequisicoesAnvisaError) as contexto:
+            _validar_status(
+                {"status": 429, "retryAfter": "17"},
+                "consulta de 'CLO' na página 16",
+            )
+
+        self.assertEqual(contexto.exception.retry_after_segundos, 17.0)
+        self.assertIn("HTTP 429", str(contexto.exception))
+
+    def test_403_continua_interrompendo_imediatamente(self) -> None:
+        with self.assertRaises(BloqueioAnvisaError):
+            _validar_status({"status": 403}, "consulta de 'CLO'")
 
     def test_data_iso_preserva_data_e_fuso_da_publicacao(self) -> None:
         data = interpretar_data_publicacao("2025-04-25T10:18:58.000-0300")
@@ -125,7 +144,6 @@ class TestConsultaPorNome(unittest.TestCase):
             expediente="456",
             id_bula_profissional="id-protegido",
             data_publicacao=datetime(2025, 8, 15, tzinfo=timezone.utc),
-            data_publicacao_original="15/08/2025",
         )
 
         self.assertEqual(baixar_pdf(navegador, bula), conteudo)

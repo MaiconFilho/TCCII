@@ -3,7 +3,15 @@ class ErroColetaAnvisa(RuntimeError):
 
 
 class BloqueioAnvisaError(ErroColetaAnvisa):
-    """A Anvisa solicitou interrupção imediata por 403 ou 429."""
+    """A Anvisa solicitou interrupção imediata por 403 ou limitação persistente."""
+
+
+class LimiteRequisicoesAnvisaError(ErroColetaAnvisa):
+    """A Anvisa respondeu 429 e solicitou redução temporária das requisições."""
+
+    def __init__(self, mensagem: str, retry_after_segundos: float | None = None) -> None:
+        super().__init__(mensagem)
+        self.retry_after_segundos = retry_after_segundos
 
 
 class RespostaAnvisaError(ErroColetaAnvisa):

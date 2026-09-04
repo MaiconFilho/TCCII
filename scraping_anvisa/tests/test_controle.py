@@ -52,20 +52,19 @@ class TestControleColeta(unittest.TestCase):
             expediente="0556857259",
             id_bula_profissional="id-protegido",
             data_publicacao=data_publicacao,
-            data_publicacao_original="2025-04-25T10:18:58.000-0300",
         )
 
         controle.finalizar(medicamento, status="CONCLUIDO", bula=bula)
 
         consulta, parametros = cursor.consultas[-1]
-        self.assertIn("data_publicacao_anvisa = %s", consulta)
-        self.assertIn("data_publicacao_original = %s", consulta)
-        self.assertNotIn("data_atualizacao_anvisa = %s", consulta)
+        self.assertIn("data_publicacao_anvisa =", consulta)
+        self.assertNotIn("data_publicacao_original =", consulta)
+        self.assertNotIn("data_atualizacao_base_anvisa", consulta)
+        self.assertNotIn("data_atualizacao_base_original", consulta)
         assert parametros is not None
         self.assertIn(data_publicacao, parametros)
-        self.assertIn("2025-04-25T10:18:58.000-0300", parametros)
 
-    def test_registro_antigo_sem_publicacao_deve_ser_reprocessado(self) -> None:
+    def test_concluido_com_pdf_existente_nao_deve_ser_reprocessado(self) -> None:
         with tempfile.TemporaryDirectory() as pasta:
             pdf = Path(pasta) / "ablok_plus.pdf"
             pdf.write_bytes(b"%PDF-1.7")
@@ -79,7 +78,39 @@ class TestControleColeta(unittest.TestCase):
 
             concluido = criar_controle(cursor).concluido("ablok plus")
 
-        self.assertFalse(concluido)
+        self.assertTrue(concluido)
+
+    def test_pdf_orfao_valido_e_recuperado_sem_download(self) -> None:
+        with tempfile.TemporaryDirectory() as pasta:
+            pdf = Path(pasta) / "a_saude_da_mulher_102351059_profissional.pdf"
+            conteudo = b"%PDF-1.7\nconteudo existente"
+            pdf.write_bytes(conteudo)
+            cursor = CursorFalso(
+                {
+                    "numero_registro": "102351059",
+                    "data_publicacao_anvisa": datetime(
+                        2025,
+                        11,
+                        18,
+                        tzinfo=timezone.utc,
+                    ),
+                }
+            )
+            medicamento = MedicamentoParaColeta(
+                "A SAÚDE DA MULHER",
+                "a saude da mulher",
+            )
+
+            recuperado = criar_controle(cursor).recuperar_pdf_existente(
+                medicamento,
+                Path(pasta),
+            )
+
+        self.assertTrue(recuperado)
+        consulta, parametros = cursor.consultas[-1]
+        self.assertIn("status = 'CONCLUIDO'", consulta)
+        assert parametros is not None
+        self.assertIn("PDF existente recuperado; download não repetido.", parametros)
 
 
 if __name__ == "__main__":
