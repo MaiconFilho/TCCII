@@ -57,6 +57,7 @@ jobs:
           python -m pip install
           PyMuPDF
           pydantic
+          psutil
           "psycopg[binary]"
           python-dotenv
 

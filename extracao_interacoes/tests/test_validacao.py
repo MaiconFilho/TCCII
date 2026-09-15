@@ -1,130 +1,165 @@
 import json
+import sys
 import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from extracao_interacoes.erros import (
     RespostaInvalidaError,
     RespostaTruncadaError,
+    SecaoSomenteTituloError,
 )
-from extracao_interacoes.validacao import validar_resposta
+from extracao_interacoes.modelos import RespostaClassificacao
+from extracao_interacoes.validacao import (
+    analisar_json,
+    copiar_e_validar_trecho,
+    localizar_fallback_estrutural,
+    normalizar_linha,
+    titulo_relacionado_a_interacoes,
+    validar_candidato,
+)
+
+from helpers import criar_documento, resposta_secao
 
 
-def resposta_encontrada(titulo: str, trecho: str) -> str:
-    return json.dumps(
-        {
-            "encontrado": True,
-            "titulo_encontrado": titulo,
-            "trecho_interacoes": trecho,
-        },
-        ensure_ascii=False,
-    )
+class TestValidacao(unittest.TestCase):
+    def setUp(self) -> None:
+        self.documento = criar_documento(
+            [
+                "5. INTERAÇÕES MEDICAMENTOSAS",
+                "A administração concomitante pode alterar o efeito terapêutico.",
+                "Consulte o profissional de saúde antes de associar medicamentos.",
+                "6. ADVERTÊNCIAS",
+                "Texto da próxima seção.",
+            ]
+        )
 
+    def test_json_de_classificacao_valido(self) -> None:
+        resposta = analisar_json(
+            json.dumps(resposta_secao(), ensure_ascii=False),
+            RespostaClassificacao,
+        )
+        self.assertEqual(resposta.linha_titulo, "L000001")
 
-class TestValidacaoResposta(unittest.TestCase):
-    def test_aceita_secao_com_numeracao_variavel_ou_sem_numero(self) -> None:
-        titulos = [
-            "6. INTERAÇÕES MEDICAMENTOSAS",
-            "5. INTERAÇÕES MEDICAMENTOSAS",
-            "7. INTERAÇÕES COM OUTROS MEDICAMENTOS",
-            "INTERAÇÕES MEDICAMENTOSAS",
-            "Interações medicamentosas e outras formas de interação",
-        ]
-        for titulo in titulos:
-            with self.subTest(titulo=titulo):
-                trecho = (
-                    f"{titulo}\nO uso concomitante pode alterar a resposta ao tratamento."
-                )
-                documento = f"APRESENTAÇÃO\nTexto inicial.\n\n{trecho}\n\n8. CUIDADOS"
+    def test_json_invalido_e_rejeitado(self) -> None:
+        with self.assertRaises(RespostaInvalidaError):
+            analisar_json("não é json", RespostaClassificacao)
 
-                resultado = validar_resposta(
-                    resposta_encontrada(titulo, trecho),
-                    documento,
-                )
+    def test_json_com_campo_extra_e_rejeitado(self) -> None:
+        dados = resposta_secao()
+        dados["texto_inventado"] = "x"
+        with self.assertRaises(RespostaInvalidaError):
+            analisar_json(json.dumps(dados), RespostaClassificacao)
 
-                self.assertTrue(resultado.encontrado)
-                self.assertEqual(resultado.titulo_encontrado, titulo)
-
-    def test_ocorrencia_somente_no_sumario_pode_resultar_em_nao_encontrado(self) -> None:
-        documento = "SUMÁRIO\n6. INTERAÇÕES MEDICAMENTOSAS ........ 12\nCONTEÚDO SEM ESSA SEÇÃO"
-        resposta = '{"encontrado": false, "titulo_encontrado": null, "trecho_interacoes": null}'
-
-        resultado = validar_resposta(resposta, documento)
-
-        self.assertFalse(resultado.encontrado)
-
-    def test_mencao_isolada_pode_resultar_em_nao_encontrado(self) -> None:
-        documento = "ADVERTÊNCIAS\nConsulte interações medicamentosas antes do uso."
-        resposta = '{"encontrado": false, "titulo_encontrado": null, "trecho_interacoes": null}'
-
-        self.assertFalse(validar_resposta(resposta, documento).encontrado)
-
-    def test_ausencia_da_secao_aceita_campos_nulos(self) -> None:
-        resposta = '{"encontrado": false, "titulo_encontrado": null, "trecho_interacoes": null}'
-
-        resultado = validar_resposta(resposta, "BULA SEM A SEÇÃO PROCURADA")
-
-        self.assertIsNone(resultado.trecho_interacoes)
-
-    def test_remove_cerca_markdown_externa(self) -> None:
-        titulo = "INTERAÇÕES MEDICAMENTOSAS"
-        trecho = f"{titulo}\nNão foram observadas interações clinicamente relevantes."
-        conteudo = f"```json\n{resposta_encontrada(titulo, trecho)}\n```"
-
-        resultado = validar_resposta(conteudo, trecho)
-
-        self.assertEqual(resultado.trecho_interacoes, trecho)
-
-    def test_rejeita_json_invalido(self) -> None:
-        with self.assertRaisesRegex(RespostaInvalidaError, "JSON inválido"):
-            validar_resposta("{encontrado: sim}", "texto")
-
-    def test_encontrado_deve_ser_booleano(self) -> None:
-        resposta = '{"encontrado": "true", "titulo_encontrado": null, "trecho_interacoes": null}'
-
-        with self.assertRaisesRegex(RespostaInvalidaError, "Estrutura JSON"):
-            validar_resposta(resposta, "texto")
-
-    def test_rejeita_resumo_ou_conteudo_inventado(self) -> None:
-        titulo = "5. INTERAÇÕES MEDICAMENTOSAS"
-        documento = f"{titulo}\nO medicamento A reduz o efeito de B em uso concomitante."
-        resumo = f"{titulo}\nHá várias interações importantes e o paciente deve ter cuidado."
-
-        with self.assertRaisesRegex(RespostaInvalidaError, "continuamente"):
-            validar_resposta(resposta_encontrada(titulo, resumo), documento)
-
-    def test_rejeita_trecho_nao_contido_no_pdf(self) -> None:
-        titulo = "INTERAÇÕES MEDICAMENTOSAS"
-        trecho = f"{titulo}\nEsta frase não existe no documento original."
-
-        with self.assertRaisesRegex(RespostaInvalidaError, "continuamente"):
-            validar_resposta(resposta_encontrada(titulo, trecho), f"{titulo}\nOutro texto oficial completo.")
-
-    def test_rejeita_resposta_truncada(self) -> None:
+    def test_resposta_truncada_e_rejeitada(self) -> None:
         with self.assertRaises(RespostaTruncadaError):
-            validar_resposta("{}", "texto", resposta_truncada=True)
+            analisar_json("{}", RespostaClassificacao, resposta_truncada=True)
 
-    def test_remove_marcadores_de_pagina_do_trecho_armazenado(self) -> None:
-        titulo = "6. INTERAÇÕES MEDICAMENTOSAS"
-        trecho_modelo = (
-            f"{titulo}\nTexto antes da quebra.\n[[PÁGINA 2]]\nTexto depois da quebra."
+    def test_candidato_precisa_apontar_para_linha_da_janela(self) -> None:
+        resposta = RespostaClassificacao.model_validate(resposta_secao())
+        with self.assertRaises(RespostaInvalidaError):
+            validar_candidato(resposta, self.documento, {"L000002"})
+
+    def test_titulo_precisa_ser_literal_e_relacionado(self) -> None:
+        resposta = RespostaClassificacao.model_validate(
+            resposta_secao(titulo="5. OUTRO ASSUNTO")
         )
-        documento = (
-            f"[[PÁGINA 1]]\n{titulo}\nTexto antes da quebra.\n"
-            "[[PÁGINA 2]]\nTexto depois da quebra."
+        with self.assertRaises(RespostaInvalidaError):
+            validar_candidato(resposta, self.documento, {"L000001"})
+
+    def test_copia_literal_preserva_acentos_e_quebras(self) -> None:
+        trecho = copiar_e_validar_trecho(
+            self.documento,
+            "L000001",
+            "L000004",
+            "5. INTERAÇÕES MEDICAMENTOSAS",
+            "6. ADVERTÊNCIAS",
         )
+        self.assertEqual(trecho, "\n".join(l.texto_original for l in self.documento.linhas[:3]))
+        self.assertNotIn("6. ADVERTÊNCIAS", trecho)
 
-        resultado = validar_resposta(
-            resposta_encontrada(titulo, trecho_modelo),
-            documento,
+    def test_fim_antes_do_inicio_e_rejeitado(self) -> None:
+        with self.assertRaises(RespostaInvalidaError):
+            copiar_e_validar_trecho(
+                self.documento, "L000003", "L000002", "interações"
+            )
+
+    def test_numero_omitido_pela_llm_e_preservado_na_copia_original(self) -> None:
+        trecho = copiar_e_validar_trecho(
+            self.documento, "L000001", "L000004", "INTERAÇÕES MEDICAMENTOSAS"
         )
+        self.assertEqual(trecho, "\n".join(l.texto_original for l in self.documento.linhas[:3]))
 
-        self.assertNotIn("[[PÁGINA", resultado.trecho_interacoes or "")
+    def test_limite_distante_nao_pode_incluir_outro_topico(self) -> None:
+        documento = criar_documento([
+            "5. INTERAÇÕES MEDICAMENTOSAS",
+            "O uso concomitante deve ser comunicado ao profissional.",
+            "6. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
+            "Conservar em temperatura ambiente.",
+        ])
+        with self.assertRaises(RespostaInvalidaError):
+            copiar_e_validar_trecho(
+                documento, "L000001", "L000005", "INTERAÇÕES MEDICAMENTOSAS"
+            )
 
-    def test_rejeita_titulo_sem_relacao_com_interacoes(self) -> None:
-        titulo = "6. ADVERTÊNCIAS"
-        trecho = f"{titulo}\nEste é um conteúdo oficial suficientemente longo."
+    def test_secao_somente_titulo_e_rejeitada(self) -> None:
+        documento = criar_documento(["INTERAÇÕES MEDICAMENTOSAS", "6. ADVERTÊNCIAS"])
+        with self.assertRaises(SecaoSomenteTituloError):
+            copiar_e_validar_trecho(
+                documento,
+                "L000001",
+                "L000002",
+                "INTERAÇÕES MEDICAMENTOSAS",
+            )
 
-        with self.assertRaisesRegex(RespostaInvalidaError, "não se relaciona"):
-            validar_resposta(resposta_encontrada(titulo, trecho), trecho)
+    def test_corpo_formado_somente_por_outro_titulo_e_rejeitado(self) -> None:
+        documento = criar_documento(
+            [
+                "INTERAÇÕES MEDICAMENTOSAS",
+                "6. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
+            ]
+        )
+        with self.assertRaises(SecaoSomenteTituloError):
+            copiar_e_validar_trecho(
+                documento,
+                "L000001",
+                "L000003",
+                "INTERAÇÕES MEDICAMENTOSAS",
+            )
+
+    def test_fallback_exige_titulo_explicito_e_proximo_titulo_inequivoco(self) -> None:
+        candidatos = localizar_fallback_estrutural(self.documento)
+        self.assertEqual(candidatos, [("L000001", "L000004", "5. INTERAÇÕES MEDICAMENTOSAS")])
+
+    def test_fallback_nao_trata_maiusculas_arbitrarias_como_novo_titulo(self) -> None:
+        documento = criar_documento(
+            [
+                "5. INTERAÇÕES MEDICAMENTOSAS",
+                "A SAÚDE DA MULHER® PODE SER AFETADA DURANTE O TRATAMENTO",
+                "Esta frase continua e contém informação oficial relevante.",
+                "6. ADVERTÊNCIAS",
+            ]
+        )
+        candidato = localizar_fallback_estrutural(documento)[0]
+        self.assertEqual(candidato[1], "L000004")
+
+    def test_fallback_nao_extrai_entrada_de_sumario(self) -> None:
+        documento = criar_documento(
+            [
+                "SUMÁRIO",
+                "5. INTERAÇÕES MEDICAMENTOSAS",
+                "6. ADVERTÊNCIAS ................................ 12",
+                "7. REAÇÕES ADVERSAS ............................ 18",
+                "Texto posterior que não transforma a entrada em seção real.",
+            ]
+        )
+        self.assertEqual(localizar_fallback_estrutural(documento), [])
+
+    def test_normalizacao_nao_altera_texto_original(self) -> None:
+        original = "  Interações\u00a0  medicamentosas  "
+        self.assertEqual(normalizar_linha(original), "Interações medicamentosas")
+        self.assertTrue(titulo_relacionado_a_interacoes(original))
 
 
 if __name__ == "__main__":

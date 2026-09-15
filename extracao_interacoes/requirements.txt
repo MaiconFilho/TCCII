@@ -1,8 +1,9 @@
-PyMuPDF
-torch
-transformers>=4.51
-accelerate
-safetensors
-psycopg[binary]
-python-dotenv
-pydantic
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+
+PyMuPDF>=1.24
+huggingface-hub>=0.27
+llama-cpp-python>=0.3.16
+psutil>=6.0
+psycopg[binary]>=3.2
+python-dotenv>=1.0
+pydantic>=2.10

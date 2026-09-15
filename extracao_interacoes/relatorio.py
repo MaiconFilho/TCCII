@@ -9,11 +9,21 @@ COLUNAS_RELATORIO = [
     "expediente",
     "arquivo_pdf",
     "status",
+    "metodo_extracao",
     "titulo_encontrado",
+    "linha_inicio",
+    "linha_fim_exclusiva",
     "quantidade_paginas",
-    "quantidade_caracteres",
-    "quantidade_tokens_entrada",
-    "quantidade_tokens_saida",
+    "paginas_ocr",
+    "tempo_ocr_segundos",
+    "acertos_cache_ocr",
+    "quantidade_janelas",
+    "quantidade_chamadas_llm",
+    "tokens_entrada_total",
+    "tokens_saida_total",
+    "memoria_antes_mb",
+    "pico_memoria_mb",
+    "memoria_depois_mb",
     "tempo_leitura_segundos",
     "tempo_inferencia_segundos",
     "tempo_total_segundos",
@@ -45,7 +55,7 @@ class RelatorioCsv:
 
     def registrar(self, dados: dict[str, Any]) -> None:
         if self.escritor is None or self.arquivo is None:
-            raise RuntimeError("O relatório precisa ser aberto como gerenciador de contexto.")
+            raise RuntimeError("O relatório deve ser aberto como gerenciador de contexto.")
         linha = {coluna: dados.get(coluna, "") for coluna in COLUNAS_RELATORIO}
         self.escritor.writerow(linha)
         self.arquivo.flush()

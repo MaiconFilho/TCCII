@@ -8,7 +8,7 @@ from .erros import (
     EsquemaBancoIncompativelError,
     RegistroJaExisteError,
 )
-from .modelos import BulaParaExtracao
+from .modelos import BulaParaExtracao, StatusExtracao
 
 
 SQL_CRIAR_TABELA = """
@@ -17,6 +17,11 @@ CREATE TABLE IF NOT EXISTS bulas_interacoes (
     numero_registro TEXT NOT NULL,
     expediente TEXT,
     trecho_interacoes TEXT,
+    status_extracao TEXT NOT NULL DEFAULT 'CONCLUIDO',
+    detalhe_revisao TEXT,
+    tempo_leitura_segundos NUMERIC(12,3),
+    tempo_inferencia_segundos NUMERIC(12,3),
+    tempo_total_segundos NUMERIC(12,3),
 
     CONSTRAINT fk_bulas_interacoes_bula
         FOREIGN KEY (nome_normalizado)
@@ -99,6 +104,7 @@ class RepositorioInteracoes:
         inicio: int = 0,
         limite: int | None = 1,
         reprocessar: bool = False,
+        nome_normalizado: str | None = None,
     ) -> list[BulaParaExtracao]:
         with self.conexao.cursor() as cursor:
             cursor.execute(
@@ -113,6 +119,7 @@ class RepositorioInteracoes:
                   AND b.caminho_pdf IS NOT NULL
                   AND BTRIM(b.caminho_pdf) <> ''
                   AND b.numero_registro IS NOT NULL
+                  AND (CAST(%s AS TEXT) IS NULL OR b.nome_normalizado = %s)
                   AND (
                       %s
                       OR NOT EXISTS (
@@ -126,7 +133,7 @@ class RepositorioInteracoes:
                     b.numero_registro,
                     b.expediente NULLS FIRST
                 """,
-                (reprocessar,),
+                (nome_normalizado, nome_normalizado, reprocessar),
             )
             linhas = cursor.fetchall()
 
@@ -148,20 +155,49 @@ class RepositorioInteracoes:
         bula: BulaParaExtracao,
         trecho_interacoes: str | None,
         reprocessar: bool = False,
+        *,
+        status_extracao: str | None = None,
+        detalhe_revisao: str | None = None,
+        tempo_leitura_segundos: float | None = None,
+        tempo_inferencia_segundos: float | None = None,
+        tempo_total_segundos: float | None = None,
     ) -> None:
+        status_extracao = status_extracao or (
+            StatusExtracao.CONCLUIDO.value if trecho_interacoes is not None
+            else StatusExtracao.SEM_SECAO_INTERACOES.value
+        )
+        permitidos = {
+            StatusExtracao.CONCLUIDO.value,
+            StatusExtracao.SEM_SECAO_INTERACOES.value,
+            StatusExtracao.REVISAO_MANUAL.value,
+        }
+        if status_extracao not in permitidos:
+            raise ValueError("Status nao persistivel em bulas_interacoes.")
         if reprocessar:
             comando = """
                 INSERT INTO bulas_interacoes (
                     nome_normalizado,
                     numero_registro,
                     expediente,
-                    trecho_interacoes
+                    trecho_interacoes,
+                    status_extracao,
+                    detalhe_revisao,
+                    tempo_leitura_segundos,
+                    tempo_inferencia_segundos,
+                    tempo_total_segundos
                 )
-                VALUES (%s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (nome_normalizado) DO UPDATE SET
                     numero_registro = EXCLUDED.numero_registro,
                     expediente = EXCLUDED.expediente,
-                    trecho_interacoes = EXCLUDED.trecho_interacoes
+                    trecho_interacoes = EXCLUDED.trecho_interacoes,
+                    status_extracao = EXCLUDED.status_extracao,
+                    detalhe_revisao = EXCLUDED.detalhe_revisao,
+                    tempo_leitura_segundos = EXCLUDED.tempo_leitura_segundos,
+                    tempo_inferencia_segundos = EXCLUDED.tempo_inferencia_segundos,
+                    tempo_total_segundos = EXCLUDED.tempo_total_segundos
+                WHERE EXCLUDED.status_extracao <> 'REVISAO_MANUAL'
+                   OR bulas_interacoes.status_extracao = 'REVISAO_MANUAL'
             """
         else:
             comando = """
@@ -169,9 +205,14 @@ class RepositorioInteracoes:
                     nome_normalizado,
                     numero_registro,
                     expediente,
-                    trecho_interacoes
+                    trecho_interacoes,
+                    status_extracao,
+                    detalhe_revisao,
+                    tempo_leitura_segundos,
+                    tempo_inferencia_segundos,
+                    tempo_total_segundos
                 )
-                VALUES (%s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (nome_normalizado) DO NOTHING
             """
 
@@ -185,6 +226,11 @@ class RepositorioInteracoes:
                             bula.numero_registro,
                             bula.expediente,
                             trecho_interacoes,
+                            status_extracao,
+                            detalhe_revisao,
+                            tempo_leitura_segundos,
+                            tempo_inferencia_segundos,
+                            tempo_total_segundos,
                         ),
                     )
                     if not reprocessar and cursor.rowcount == 0:

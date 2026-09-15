@@ -18,10 +18,16 @@ __pycache__/
 controle/*.csv
 scraping_anvisa/controle/*.csv
 scraping_anvisa/pdfs/*.pdf
-extracao_interacoes/relatorios/*.csv
+# Saidas locais da extracao: relatorios, backups de retentativa e logs.
+extracao_interacoes/relatorios/
+extracao_interacoes/logs/
 .cache/
 huggingface/
 extracao_interacoes/modelos_hf/
+extracao_interacoes/modelos_ocr/
+*.gguf
+*.ggml
+tmp/
 *.safetensors
 pytorch_model*.bin
 .vscode/

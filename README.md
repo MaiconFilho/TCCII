@@ -1,92 +1,55 @@
-# TCC II — Pipeline de bulas da Anvisa
+# TCC II — Coleta e extração de bulas da Anvisa
 
-Este repositório reúne o desenvolvimento de um pipeline para coleta e futura
-análise de interações medicamentosas publicadas nas bulas profissionais da
-Anvisa.
+O projeto coleta bulas profissionais da Anvisa e extrai seu tópico de interações
+medicamentosas para uma base PostgreSQL rastreável.
 
-O objetivo é construir uma base rastreável a partir do Bulário Eletrônico,
-preservando a relação entre o medicamento consultado, a bula selecionada e a
-data de publicação informada pela Anvisa.
+## Etapas nesta branch
 
-## Fluxo do sistema
+1. **Coleta:** o scraper lê a planilha de medicamentos, consulta o Bulário com
+   Selenium, seleciona a bula profissional pela data de publicação, baixa os
+   PDFs e registra o controle da execução no PostgreSQL.
+2. **Extração:** o PyMuPDF lê os PDFs, aplica OCR seletivo quando necessário e
+   identifica o tópico de interações. Uma LLM local confirma a seção e seus
+   limites; o texto completo é copiado para `bulas_interacoes`.
+3. **Validação e retomada:** testes, diagnóstico de pendentes e reprocessamento
+   seletivo permitem verificar resultados e tentar novamente falhas.
 
-```text
-Planilha
-→ Selenium
-→ Bulário da Anvisa
-→ PDFs
-→ extração das interações medicamentosas
-→ PostgreSQL
-→ embeddings
-→ pgvector
-```
+A etapa de extração mantém um registro por `nome_normalizado`, com status e
+tempos em segundos. O modelo padrão é Qwen2.5 1.5B Instruct GGUF Q4_K_M,
+executado em CPU por `llama-cpp-python`. O modo rápido confirma contextos das
+bordas da seção e preserva integralmente o texto intermediário.
 
-## Estado atual
-
-| Etapa | Situação |
-| --- | --- |
-| Leitura e normalização da planilha de entrada | Concluída |
-| Consulta ao Bulário com Selenium | Concluída |
-| Seleção da bula profissional mais recente | Concluída |
-| Download e validação dos PDFs | Concluída |
-| Controle de execução e retomada no PostgreSQL | Concluído |
-| Extração das interações medicamentosas | Implementada |
-| Geração de embeddings | Planejada |
-| Armazenamento vetorial com pgvector | Planejado |
-
-Os PDFs são gerados localmente pelo scraper e não são versionados no Git. A
-planilha utilizada como entrada permanece no repositório para permitir a
-reprodução da coleta.
-
-## Tecnologias
-
-- Python 3.11 ou superior;
-- Selenium e Google Chrome;
-- openpyxl;
-- PostgreSQL e psycopg;
-- PyMuPDF, PyTorch e Transformers;
-- Qwen3-4B-Instruct-2507 executado localmente;
-- unittest para testes automatizados;
-- GitHub Actions para integração contínua;
-- pgvector, previsto para uma etapa futura.
-
-## Estrutura do repositório
+## Organização
 
 ```text
-.github/workflows/tests.yml   testes automatizados no GitHub Actions
-scraping_anvisa/
-  anvisa_scraper/             código-fonte do scraper
-  dados/                      planilha de entrada versionada
-  pdfs/                       saída local dos downloads
-  tests/                      testes automatizados
-  main.py                     entrada da aplicação
-  requirements.txt            dependências Python
-  README.md                   documentação técnica do scraper
-extracao_interacoes/
-  extracao_interacoes/       leitura, inferência, validação e persistência
-  tests/                     testes isolados sem modelo ou banco reais
-  main.py                    CLI da extração
-  requirements.txt           dependências da extração local
-  README.md                  documentação técnica da extração
+.github/workflows/tests.yml  testes automatizados
+scraping_anvisa/             coleta, planilha e controle dos downloads
+extracao_interacoes/         módulos Python, OCR, LLM e persistência
+  tests/                    testes isolados e regressões
+  main.py                   processamento individual ou em lote
+  preparar_ocr.py            preparação do idioma português
+  reprocessar_pendentes.py   segunda tentativa seletiva
+  diagnosticar_pendentes.py  diagnóstico sem gravar no banco
+  criar_tabela.sql           esquema de bulas_interacoes
+  .env.example              configuração de exemplo
+  README.md                 instalação, funcionamento e comandos
 ```
 
-## Etapa implementada
+## Começar
 
-O scraper lê os nomes de medicamentos da planilha, consulta o Bulário da
-Anvisa em uma sessão do Chrome, percorre os resultados, seleciona a bula
-profissional com a data de publicação mais recente e salva o PDF localmente. O
-PostgreSQL mantém o controle da coleta, dos arquivos e das tentativas.
+- [Instalar e executar o scraper](scraping_anvisa/README.md).
+- [Instalar, executar e testar a extração](extracao_interacoes/README.md).
+- [Consultar o esquema de extração](extracao_interacoes/criar_tabela.sql).
 
-O módulo de extração lê todas as páginas de cada PDF com PyMuPDF, envia o texto
-integral ao modelo local `Qwen/Qwen3-4B-Instruct-2507`, valida a resposta e
-grava a seção oficial em `bulas_interacoes`. A numeração da seção não é
-presumida: o modelo utiliza título, contexto, conteúdo e estrutura.
+Prepare primeiro o banco e os PDFs pela etapa de coleta. Depois configure o
+`.env` da extração e comece com um medicamento, conforme o passo a passo do módulo.
 
-Embeddings, pgvector, busca semântica, API, interface e análise clínica ainda
-não fazem parte desta implementação.
+## Dados e escopo
 
-Para instalar, configurar, executar e testar o scraper, consulte a
-[documentação técnica](scraping_anvisa/README.md).
+A planilha de entrada é versionada. PDFs baixados, bancos, credenciais, modelos
+locais, caches e relatórios de execução ficam fora do Git.
 
-Para executar a etapa de extração, consulte a
-[documentação de interações medicamentosas](extracao_interacoes/README.md).
+Esta branch contém coleta e extração de texto. A conversão em vetores é uma
+etapa separada. Os resultados da extração exigem validação documental antes de
+serem usados em aplicações clínicas; ausência de um tópico reconhecido não
+representa ausência de interações medicamentosas.
