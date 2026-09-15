@@ -35,3 +35,18 @@ pytorch_model*.bin
 Thumbs.db
 .DS_Store
 ~$*
+
+# Saidas locais da vetorizacao: modelo baixado, relatorios e logs.
+conversao_interacoes_vetores/modelos_hf/
+conversao_interacoes_vetores/relatorios/
+conversao_interacoes_vetores/logs/
+# Caches e pesos do Hugging Face em qualquer pasta do projeto.
+modelos_hf/
+.huggingface/
+hub/
+*.onnx
+*.bin
+*.pt
+*.pth
+*.npy
+*.npz
