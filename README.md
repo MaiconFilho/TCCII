@@ -43,13 +43,3 @@ extracao_interacoes/         módulos Python, OCR, LLM e persistência
 
 Prepare primeiro o banco e os PDFs pela etapa de coleta. Depois configure o
 `.env` da extração e comece com um medicamento, conforme o passo a passo do módulo.
-
-## Dados e escopo
-
-A planilha de entrada é versionada. PDFs baixados, bancos, credenciais, modelos
-locais, caches e relatórios de execução ficam fora do Git.
-
-Esta branch contém coleta e extração de texto. A conversão em vetores é uma
-etapa separada. Os resultados da extração exigem validação documental antes de
-serem usados em aplicações clínicas; ausência de um tópico reconhecido não
-representa ausência de interações medicamentosas.
