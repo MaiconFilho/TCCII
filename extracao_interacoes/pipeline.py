@@ -6,6 +6,7 @@ from collections import Counter
 from typing import Protocol
 
 from .erros import ErroBancoError
+from .cadastro import ResultadoCadastro
 from .modelos import (
     BulaParaExtracao,
     MetodoExtracao,
@@ -13,6 +14,7 @@ from .modelos import (
     StatusExtracao,
 )
 from .servico import ServicoExtracaoInteracoes
+from .pipeline_cadastro import processar_cadastro, colunas_cadastro
 
 
 LOGGER = logging.getLogger(__name__)
@@ -78,7 +80,12 @@ def processar_lote(
     repositorio: RepositorioProtocolo,
     relatorio: RelatorioProtocolo,
     reprocessar: bool = False,
+    *,
+    servico_cadastro=None,
+    repositorio_cadastro=None,
 ) -> dict[str, int]:
+    if (servico_cadastro is None) != (repositorio_cadastro is None):
+        raise ValueError("Informe serviço e repositório de cadastro juntos.")
     contagens: Counter[str] = Counter()
     metodos: Counter[str] = Counter()
 
@@ -86,16 +93,37 @@ def processar_lote(
         prefixo = f"[{indice}/{len(bulas)}] {bula.nome_normalizado}"
         print(f"{prefixo} — analisando PDF...")
         inicio_total = time.perf_counter()
-        resultado = servico.extrair(
-            nome_normalizado=bula.nome_normalizado,
-            numero_registro=bula.numero_registro,
-            expediente=bula.expediente,
-            caminho_pdf=bula.caminho_pdf,
-        )
+        documentos = []
+        erro_leitura_cadastro = ""
+        if bula.precisa_interacoes or reprocessar:
+            extras = (
+                {"ao_ler_documento": documentos.append}
+                if servico_cadastro is not None and (bula.precisa_cadastro or reprocessar)
+                else {}
+            )
+            resultado = servico.extrair(
+                nome_normalizado=bula.nome_normalizado,
+                numero_registro=bula.numero_registro,
+                expediente=bula.expediente,
+                caminho_pdf=bula.caminho_pdf,
+                **extras,
+            )
+        else:
+            if servico_cadastro is None:
+                raise ValueError("Bula sem interações pendentes exige serviço de cadastro.")
+            resultado = ResultadoExtracao(StatusExtracao.IGNORADO_JA_EXISTENTE)
+            try:
+                documentos.append(servico.leitor(bula.caminho_pdf))
+            except Exception as erro:
+                LOGGER.exception("Falha de leitura para cadastro de %s", bula.nome_normalizado)
+                erro_leitura_cadastro = f"{type(erro).__name__}: {erro}"
 
         # Mede a extracao por PDF, incluindo leitura, LLM e validacao.
         # Exclui carregamento do modelo, gravacao no banco e escrita do CSV.
-        tempo_total = time.perf_counter() - inicio_total
+        tempo_total = (
+            time.perf_counter() - inicio_total
+            if bula.precisa_interacoes or reprocessar else 0.0
+        )
         if resultado.status in {
             StatusExtracao.CONCLUIDO,
             StatusExtracao.SEM_SECAO_INTERACOES,
@@ -129,7 +157,21 @@ def processar_lote(
                 resultado.status = StatusExtracao.ERRO_BANCO
                 resultado.detalhe_erro = repr(erro)
 
-        relatorio.registrar(_linha_relatorio(bula, resultado, tempo_total))
+        linha = _linha_relatorio(bula, resultado, tempo_total)
+        if servico_cadastro is not None:
+            if bula.precisa_cadastro or reprocessar:
+                cadastro = processar_cadastro(
+                    bula, documentos[0] if documentos else None,
+                    servico_cadastro, repositorio_cadastro, reprocessar=reprocessar,
+                )
+                if erro_leitura_cadastro:
+                    cadastro.detalhe = erro_leitura_cadastro
+            else:
+                cadastro = ResultadoCadastro(status="IGNORADO_JA_EXISTENTE")
+            linha.update(colunas_cadastro(cadastro))
+            contagens["CADASTRO_" + cadastro.status] += 1
+            print(f"{prefixo} — cadastro: {cadastro.status}.")
+        relatorio.registrar(linha)
         contagens[resultado.status.value] += 1
         if resultado.metodo is not None:
             metodos[resultado.metodo.value] += 1

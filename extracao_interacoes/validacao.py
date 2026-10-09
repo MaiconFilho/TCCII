@@ -415,18 +415,33 @@ def paginas_administrativas(documento: DocumentoPdf) -> set[int]:
         tabela = formal and ('notificacao' in texto or 'inclusao inicial' in texto) and ('rdc' in texto or 'expediente' in texto)
         datas = len(re.findall(r'\b\d{2}/\d{2}/\d{4}\b', texto))
         rotulos = sum(bool(re.search(r'\b'+s+r'\b', texto)) for s in ('vps', 'vp', 'assunto', 'versoes', 'expediente', 'apresentacoes'))
+        versoes = len(re.findall(r'\bvps?\d*\b', texto))
         if cabecalhos >= 3 or (tabela and datas >= 2 and rotulos >= 1) or (
             'historico de alteracoes' in texto and tabela and rotulos >= 2
+        ) or (
+            versoes and formal and ('rdc' in texto or 'expediente' in texto)
+            and ('notificacao' in texto or datas >= 2 or versoes >= 2)
         ):
             resultado.add(p)
         elif (
             p - 1 in resultado
-            and "notificacao" in texto
-            and "rdc" in texto
-            and rotulos >= 2
+            and (
+                (versoes > 0 and not re.search(r"\bcada\b.*\bcontem\b", texto))
+                or (len(texto) < 600 and len(re.findall(
+                    r"composicao|contraindicacoes|advertencias|posologia|dizeres legais|superdose", texto
+                )) >= 3)
+                or (
+                    "notificacao" in texto and "rdc" in texto
+                    and (rotulos >= 2 or (
+                        texto.count("notificacao") >= 2
+                        and texto.count("rdc") >= 2
+                        and texto.count("texto de bula") >= 2
+                    ))
+                )
+            )
         ):
-            # A ultima pagina da tabela pode repetir apenas os dados das linhas,
-            # sem repetir o cabecalho "texto de bula"/"historico".
+            # Continuação da tabela regulatória pode omitir todos os cabeçalhos
+            # e rótulos, mas repete os registros de notificação e texto de bula.
             resultado.add(p)
     return resultado
 

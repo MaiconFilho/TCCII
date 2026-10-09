@@ -1,0 +1,107 @@
+# Nomes do banco que NÃO contam como citação de medicamento no tópico de
+# interações (estratégia "dicionario"). Uma entrada por linha; acentos, caixa
+# e pontuação não importam; o que vem depois de "#" é comentário.
+#
+# A lista foi revisada a partir dos nomes mais citados na base inteira, nunca
+# de bulas específicas. Alterar este arquivo muda a versão do processamento.
+
+# Marcas que são palavras comuns do português
+limiar          # "limiar convulsivo"
+nesta
+dupla
+neural
+versa           # "vice-versa"
+rosa
+halo
+aria
+zina
+kelly
+triazol         # "derivados triazólicos" é classe
+
+# Parâmetros do organismo, de exame ou de mecanismo
+proteina
+proteinas
+proteina c      # "resistência à proteína C ativada"
+proteina s
+glicose
+agua
+sodio
+oxigenio
+triglicerides
+alanina         # "alanina aminotransferase"
+albumina serica
+ureia
+iodo            # "iodo conjugado à proteína"
+trombina        # "inibidores diretos da trombina", "tempo de trombina"
+tirosina        # "inibidores da tirosina quinase"
+serina          # "serina/treonina quinase"
+treonina
+aminoacido
+aminoacidos
+bicarbonato
+acetato
+citrato
+osmolaridade
+proteina total
+acidos graxos livres
+sais minerais
+bario           # "sulfato de bário" de exames radiológicos
+CHO             # sigla de linhagem celular
+
+# Diluentes e soluções de infusão: compatibilidade, não interação
+cloreto de sodio
+cloreto de sodio 0,9%
+solucao de glicose
+solucao glicofisiologica
+ringer
+ringer com lactato
+solucao de ringer
+solucao de ringer com lactato
+agua para injecao
+agua para injetaveis
+agua para injecao q.s.p.
+
+# Excipientes e açúcares citados em avisos de composição
+lactose
+lactose monoidratada
+galactose
+sacarose
+maltose
+hipromelose
+propilenoglicol
+povidona
+glicerol
+oleo de soja
+azul de indigotina
+amarelo de tartrazina
+enxofre
+acido estearico
+benzoato de sodio
+sacarina sodica
+gelatina
+glicerina
+oleo de oliva
+
+# Erros do cadastro: texto que não é princípio ativo
+comprimido
+revestido
+dura            # "cápsula dura"
+cloreto
+sodica
+RDC 60/12
+xarope
+gliconato
+ferroso
+hidratado
+monoidratado
+medoxomila
+VPS04
+VPS20
+plas trans
+sodio Na
+cloreto Cl
+CLO
+
+# Bebidas e alimentos: fora do escopo medicamento × medicamento
+alcool
+etanol

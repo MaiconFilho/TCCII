@@ -19,6 +19,8 @@ class ControleColeta:
                     nome_normalizado TEXT PRIMARY KEY,
                     quantidade_registros_planilha INTEGER NOT NULL DEFAULT 1,
                     nome_anvisa TEXT,
+                    principios_ativos TEXT,
+                    composicao TEXT,
                     numero_registro TEXT,
                     expediente TEXT,
                     id_produto TEXT,
@@ -40,7 +42,9 @@ class ControleColeta:
             cursor.execute(
                 """
                 ALTER TABLE bulas
-                    ADD COLUMN IF NOT EXISTS data_publicacao_anvisa TIMESTAMPTZ
+                    ADD COLUMN IF NOT EXISTS data_publicacao_anvisa TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS principios_ativos TEXT,
+                    ADD COLUMN IF NOT EXISTS composicao TEXT
                 """
             )
             cursor.execute(
@@ -51,6 +55,10 @@ class ControleColeta:
                 "'Controle da coleta da bula profissional mais recente por nome de medicamento.'",
                 "COMMENT ON COLUMN bulas.nome_normalizado IS "
                 "'Chave normalizada usada para impedir mais de uma bula por nome.'",
+                "COMMENT ON COLUMN bulas.principios_ativos IS "
+                "'Nomes literais dos principios ativos confirmados na composicao da bula, separados por ponto e virgula.'",
+                "COMMENT ON COLUMN bulas.composicao IS "
+                "'Texto integral da secao de composicao extraido do PDF pela etapa de extracao.'",
                 "COMMENT ON COLUMN bulas.data_publicacao_anvisa IS "
                 "'Data de publicação da bula no Bulário Eletrônico, obtida do campo data da API.'",
                 "COMMENT ON COLUMN bulas.tempo_consulta_segundos IS "

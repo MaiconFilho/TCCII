@@ -28,6 +28,13 @@ COLUNAS_RELATORIO = [
     "tempo_inferencia_segundos",
     "tempo_total_segundos",
     "detalhe_erro",
+    "status_cadastro",
+    "detalhe_cadastro",
+    "principios_ativos",
+    "caracteres_composicao",
+    "evidencias_cadastro",
+    "chamadas_llm_cadastro",
+    "tempo_cadastro_segundos",
 ]
 
 

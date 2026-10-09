@@ -30,6 +30,8 @@ from extracao_interacoes.pipeline import _linha_relatorio, processar_lote
 from extracao_interacoes.relatorio import RelatorioCsv
 from extracao_interacoes.repositorio import RepositorioInteracoes
 from extracao_interacoes.servico import ServicoExtracaoInteracoes
+from extracao_interacoes.cadastro import ServicoExtracaoCadastro
+from extracao_interacoes.repositorio_cadastro import RepositorioCadastro
 
 
 REPOSITORIO_PADRAO = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
@@ -76,7 +78,7 @@ def _float_env(nome: str, padrao: float) -> float:
 def criar_argumentos() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Extrai a seção de interações medicamentosas com uma LLM GGUF local."
+            "Extrai interações, composição e princípios ativos com uma LLM GGUF local."
         )
     )
     parser.add_argument("--inicio", type=inteiro_nao_negativo, default=0)
@@ -185,6 +187,8 @@ def main() -> int:
         return 4
 
     try:
+        repositorio_cadastro = RepositorioCadastro(repositorio.conexao)
+        repositorio_cadastro.validar_esquema()
         bulas = repositorio.selecionar_bulas(
             inicio=args.inicio,
             limite=limite,
@@ -238,6 +242,8 @@ def main() -> int:
                 repositorio,
                 relatorio,
                 reprocessar=args.reprocessar,
+                servico_cadastro=ServicoExtracaoCadastro(provedor, configuracao),
+                repositorio_cadastro=repositorio_cadastro,
             )
 
         print("\nResumo:")
@@ -254,7 +260,15 @@ def main() -> int:
             StatusExtracao.ERRO_BANCO.value,
             StatusExtracao.REVISAO_MANUAL.value,
         }
-        return 1 if status_erro.intersection(resumo) else 0
+        falhas_cadastro = any(
+            s.startswith("CADASTRO_")
+            and s not in {"CADASTRO_CONCLUIDO", "CADASTRO_IGNORADO_JA_EXISTENTE"}
+            for s in resumo
+        )
+        return 1 if status_erro.intersection(resumo) or falhas_cadastro else 0
+    except ErroBancoError as erro:
+        print(f"Não foi possível preparar/gravar os dados: {erro}")
+        return 4
     finally:
         repositorio.fechar()
 

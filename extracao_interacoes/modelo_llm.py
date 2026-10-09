@@ -139,6 +139,7 @@ class LlamaCppProvider:
                 tokens_entrada=int(uso.get("prompt_tokens", 0)),
                 tokens_saida=int(uso.get("completion_tokens", 0)),
                 truncada=escolha.get("finish_reason") == "length",
+                motivo_encerramento=escolha.get("finish_reason"),
             )
         except Exception as erro:
             LOGGER.exception("Falha durante a inferência llama.cpp: %r", erro)

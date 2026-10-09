@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class StatusExtracao(StrEnum):
     CONCLUIDO = "CONCLUIDO"
+    IGNORADO_JA_EXISTENTE = "IGNORADO_JA_EXISTENTE"
     SEM_SECAO_INTERACOES = "SEM_SECAO_INTERACOES"
     SECAO_SOMENTE_TITULO = "SECAO_SOMENTE_TITULO"
     PDF_SEM_TEXTO = "PDF_SEM_TEXTO"
@@ -55,6 +56,9 @@ class BulaParaExtracao:
     numero_registro: str
     expediente: str | None
     caminho_pdf: Path
+    caminho_pdf_banco: str | None = None
+    precisa_interacoes: bool = True
+    precisa_cadastro: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +163,7 @@ class RespostaLLM:
     tokens_entrada: int
     tokens_saida: int
     truncada: bool = False
+    motivo_encerramento: str | None = None
 
 
 class RespostaConfirmacao(BaseModel):

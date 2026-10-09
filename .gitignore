@@ -1,12 +1,22 @@
 .venv/
+frontend/.tools/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
+frontend/AGENTS.md
+frontend/CLAUDE.md
 venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .coverage
 .env
+.env.*
+!.env.example
 .chrome-profile-anvisa/
 .chrome-profile-anvisa-headless/
+**/.chrome-profile-anvisa*/
 *.sqlite
 *.sqlite3
 *.db
@@ -50,3 +60,13 @@ hub/
 *.pth
 *.npy
 *.npz
+
+# Saidas locais da identificacao das interacoes: relatorios e logs.
+identificacao_interacoes/relatorios/
+identificacao_interacoes/logs/
+identificacao_interacoes/avaliacao/
+identificacao_interacoes/tests/
+api_interacoes/tests/
+api_interacoes/relatorios/
+api_interacoes/logs/
+frontend/tests/

@@ -90,21 +90,26 @@ class ServicoExtracaoInteracoes:
         numero_registro: str,
         expediente: str | None,
         caminho_pdf: Path,
+        *,
+        ao_ler_documento: Callable[[DocumentoPdf], None] | None = None,
     ) -> ResultadoExtracao:
         # Registro e expediente seguem no contrato para o fluxo web futuro,
         # mas nunca são inferidos nem alterados pela LLM.
         _ = (numero_registro, expediente)
         chave = nome_normalizado or str(caminho_pdf.resolve())
         with self._trava_para(chave):
-            return self._extrair_sem_concorrencia(caminho_pdf)
+            return self._extrair_sem_concorrencia(caminho_pdf, ao_ler_documento)
 
-    def _extrair_sem_concorrencia(self, caminho_pdf: Path) -> ResultadoExtracao:
+    def _extrair_sem_concorrencia(self, caminho_pdf: Path, ao_ler_documento=None) -> ResultadoExtracao:
         resultado = ResultadoExtracao(status=StatusExtracao.RESPOSTA_INVALIDA)
         medidor = self.fabrica_medidor(self.configuracao.limite_memoria_mb)
         resultado.memoria_antes_mb = medidor.memoria_antes_mb
         inicio_leitura = time.perf_counter()
         try:
             documento = self.leitor(caminho_pdf)
+            # Compartilha a leitura com outras etapas, sem executar outra LLM aqui.
+            if ao_ler_documento is not None:
+                ao_ler_documento(documento)
             resultado.quantidade_paginas = documento.quantidade_paginas
             resultado.paginas_ocr = documento.paginas_ocr
             resultado.tempo_ocr_segundos = documento.tempo_ocr_segundos

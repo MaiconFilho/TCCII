@@ -113,8 +113,13 @@ class RepositorioInteracoes:
                     b.nome_normalizado,
                     b.numero_registro,
                     b.expediente,
-                    b.caminho_pdf
+                    b.caminho_pdf,
+                    bi.nome_normalizado IS NULL AS precisa_interacoes,
+                    (NULLIF(BTRIM(b.principios_ativos), '') IS NULL
+                     OR NULLIF(BTRIM(b.composicao), '') IS NULL) AS precisa_cadastro
                 FROM bulas AS b
+                LEFT JOIN bulas_interacoes AS bi
+                    ON bi.nome_normalizado = b.nome_normalizado
                 WHERE b.status = 'CONCLUIDO'
                   AND b.caminho_pdf IS NOT NULL
                   AND BTRIM(b.caminho_pdf) <> ''
@@ -122,11 +127,9 @@ class RepositorioInteracoes:
                   AND (CAST(%s AS TEXT) IS NULL OR b.nome_normalizado = %s)
                   AND (
                       %s
-                      OR NOT EXISTS (
-                          SELECT 1
-                          FROM bulas_interacoes AS bi
-                          WHERE bi.nome_normalizado = b.nome_normalizado
-                      )
+                      OR bi.nome_normalizado IS NULL
+                      OR NULLIF(BTRIM(b.principios_ativos), '') IS NULL
+                      OR NULLIF(BTRIM(b.composicao), '') IS NULL
                   )
                 ORDER BY
                     b.nome_normalizado,
@@ -143,6 +146,9 @@ class RepositorioInteracoes:
                 numero_registro=linha["numero_registro"],
                 expediente=linha["expediente"],
                 caminho_pdf=Path(linha["caminho_pdf"]).resolve(),
+                caminho_pdf_banco=linha["caminho_pdf"],
+                precisa_interacoes=reprocessar or linha["precisa_interacoes"],
+                precisa_cadastro=reprocessar or linha["precisa_cadastro"],
             )
             for linha in linhas
             if Path(linha["caminho_pdf"]).is_file()

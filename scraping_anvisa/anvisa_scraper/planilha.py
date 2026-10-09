@@ -1,21 +1,15 @@
-import re
-import unicodedata
 from pathlib import Path
 
 from openpyxl import load_workbook
 
 from .modelos import MedicamentoParaColeta
+from .normalizacao import normalizar_nome
 
 
 ABA_PADRAO = "Medicamentos monitorados"
 COLUNA_NOME = "Nome do medicamento"
 
-
-def normalizar_nome(valor: object) -> str:
-    texto = str(valor or "").strip().casefold()
-    texto = unicodedata.normalize("NFKD", texto)
-    texto = "".join(caractere for caractere in texto if not unicodedata.combining(caractere))
-    return re.sub(r"\s+", " ", texto).strip()
+__all__ = ["ABA_PADRAO", "COLUNA_NOME", "carregar_medicamentos", "normalizar_nome"]
 
 
 def carregar_medicamentos(

@@ -7,6 +7,18 @@ from .validacao import PADRAO_TITULO_INTERACOES, normalizar_linha, _eh_titulo_pr
 def separar_cabecalhos(texto):
     saida=[]
     for linha in texto.splitlines():
+        composicao = re.search(r"\bCOMPOSI[ÇC][ÃA]O\b", linha)
+        if composicao:
+            antes, depois = linha[:composicao.start()], linha[composicao.end():]
+            if (antes.strip() and len(antes.strip()) < 100
+                    and re.search(r"\b(?:USO|IDADE|ANOS|PEDI[ÁA]TRICO)\b", antes)):
+                saida.append(antes.rstrip())
+                linha = linha[composicao.start():]
+                composicao = re.search(r"\bCOMPOSI[ÇC][ÃA]O\b", linha)
+            if re.match(r"\s*:?\s*Cada\b", depois):
+                corte = composicao.end()
+                saida.extend((linha[:corte], linha[corte:].lstrip(" :")))
+                continue
         # Titulo numerado em maiusculas seguido de ':' e corpo na mesma linha.
         # Sem numeracao/caixa alta, pode ser apenas uma frase do corpo.
         corte=None

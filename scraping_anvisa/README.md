@@ -7,6 +7,11 @@ mais recente** no Bulário Eletrônico da Anvisa.
 
 ## Regra de seleção
 
+A tabela `bulas` já nasce com `principios_ativos` e `composicao` (ambos `TEXT`).
+O scraper coleta o PDF; esses dois campos são preenchidos depois por
+`extracao_interacoes/main.py`, na mesma execução que extrai as interações.
+Não há nova chamada à Anvisa nem carregamento de LLM durante o scraping.
+
 Para cada nome único da planilha, a aplicação:
 
 1. pesquisa `filter[nomeProduto]` no endpoint do Bulário;
@@ -60,7 +65,7 @@ pdfs/               PDFs baixados pelo fluxo atual
 controle/           resultado.csv
 main.py             entrada do programa
 .env.example        modelo da conexão PostgreSQL
-criar_banco.sql     criação inicial do banco
+criar_banco.sql     criação inicial do banco e das tabelas bulas e bulas_interacoes
 consultar_metricas.sql consultas prontas para análise dos tempos
 ```
 
@@ -75,8 +80,13 @@ execute:
 CREATE DATABASE "TCC";
 ```
 
-A aplicação cria e documenta automaticamente a tabela `bulas` dentro desse
-banco. O nome é minúsculo e pode ser usado sem aspas nas consultas SQL.
+Depois, abra o **Query Tool conectado ao banco `TCC`** e execute a etapa 2 de
+[criar_banco.sql](criar_banco.sql). Ela cria `bulas`, incluindo `principios_ativos`
+e `composicao` como `TEXT`, e `bulas_interacoes`, com as métricas de extração.
+Não execute as duas etapas na mesma conexão ao banco `postgres`.
+
+A aplicação também cria e documenta `bulas` automaticamente quando necessário.
+O script é de criação inicial; não migra tabelas já existentes.
 
 ## 2. Configurar a conexão
 

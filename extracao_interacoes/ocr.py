@@ -15,6 +15,7 @@ import pymupdf
 
 from .erros import ErroOCRError, OCRIndisponivelError
 from .layout_pdf import ordenar_colunas
+from .validacao import sem_acentos
 
 LOGGER = logging.getLogger(__name__)
 BASE = Path(__file__).resolve().parent
@@ -64,7 +65,14 @@ def motivo_ocr(pagina, texto: str) -> str | None:
         proporcao = rect.get_area() / area_pagina
         if proporcao >= 0.5 and letras < 200:
             return "imagem_sem_texto_suficiente"
-        if proporcao >= 0.12:
+        if palavras is None and proporcao >= 0.015:
+            palavras = pagina.get_text("words")
+        tabela_composicao = proporcao >= 0.015 and any(
+            sem_acentos(palavra[4]).strip(" :.") == "composicao"
+            and 0 <= rect.y0 - palavra[3] <= 60
+            for palavra in (palavras or ())
+        )
+        if proporcao >= 0.12 or tabela_composicao:
             if palavras is None:
                 palavras = pagina.get_text("words")
             letras_na_imagem = sum(
@@ -79,8 +87,17 @@ def motivo_ocr(pagina, texto: str) -> str | None:
                 return "imagem_parcial_sem_texto"
     # Letras convertidas em curvas tambem precisam de OCR. Nao renderizar
     # paginas realmente vazias ou uma simples moldura.
-    if letras < 40 and len(pagina.get_cdrawings()) >= 50:
-        return "texto_vetorial_sem_camada_textual"
+    if letras < 40:
+        # Grades de tabela podem conter centenas de retas/retângulos, inclusive
+        # em páginas vazias ou tabelas numéricas já legíveis. Letras em curvas
+        # têm caminhos Bézier; contar a grade como texto forçava OCR e abortava
+        # toda a bula quando ele não encontrava vinte letras.
+        curvas = sum(
+            any(item[0] == "c" for item in desenho.get("items", ()))
+            for desenho in pagina.get_cdrawings()
+        )
+        if curvas >= 50:
+            return "texto_vetorial_sem_camada_textual"
     return None
 
 

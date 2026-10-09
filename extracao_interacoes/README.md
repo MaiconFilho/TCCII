@@ -3,9 +3,92 @@
 Esta etapa lê as bulas profissionais coletadas pelo scraper e grava o tópico
 completo de interações medicamentosas no PostgreSQL. Cada `nome_normalizado`
 possui um único registro em `bulas_interacoes`.
+A mesma execução também extrai os princípios ativos e a composição para
+`bulas`, sem criar outra linha por medicamento e sem alterar a etapa de vetores.
 
-O texto é copiado das linhas extraídas do PDF. A LLM confirma a estrutura e os
-limites; não redige um resumo nem completa informações ausentes.
+## Princípios ativos e composição
+
+- `bulas.principios_ativos TEXT`: nomes literais, sem duplicatas, separados por
+  `; `. Conserva sais, hidratos e nomes de extratos vegetais; não inventa sinônimos.
+- `bulas.composicao TEXT`: texto completo das seções de composição, incluindo
+  concentrações, apresentações, notas e excipientes. A LLM não reescreve esse texto.
+
+O leitor de PDF/OCR é executado uma vez por bula. A mesma instância local do
+Qwen usada para interações recebe pequenas janelas da composição e identifica
+os nomes. Candidatos extraídos das tabelas são numerados e a LLM classifica cada
+um como ativo ou excipiente, sem precisar redigitar seu nome. Ter dose não torna
+um ingrediente ativo. O código verifica a presença literal na composição ou na
+identificação do medicamento e registra
+as linhas/páginas de evidência no CSV. Blocos explicitamente rotulados como
+excipientes ficam fora do prompt de princípios ativos, mas permanecem na composição.
+O tópico de composição é copiado integralmente assim que seu cabeçalho e seu
+limite são encontrados. Falhas na identificação dos princípios ativos deixam
+esse campo pendente, mas não impedem gravar a composição. Cabeçalhos sem corpo
+e limites não encontrados impedem a cópia porque o tópico não pode ser
+delimitado. Ingredientes tabulados com dose também são conferidos apenas para
+a identificação dos princípios ativos.
+O reconhecimento inclui títulos unidos à linha anterior, tabelas com doses
+quebradas entre linhas e blocos “Cada ... contém” na identificação inicial.
+Continuações de históricos regulatórios não são tratadas como novas composições.
+Imagens de tabelas logo abaixo do título recebem OCR mesmo quando ocupam uma
+parte pequena da página; grades vazias e tabelas numéricas nativas não disparam
+OCR apenas por terem muitas linhas vetoriais.
+Isso não substitui a revisão documental, especialmente em textos reconhecidos por OCR.
+
+As duas extrações têm resultados independentes: uma pendência em interações não
+impede gravar um cadastro válido e vice-versa. O CSV informa `status_cadastro`,
+`detalhe_cadastro`, `evidencias_cadastro`, `chamadas_llm_cadastro` e
+`tempo_cadastro_segundos`. Esse último mede localização, LLM e validação do
+cadastro; exclui a leitura compartilhada e a gravação. As métricas anteriores
+continuam medindo apenas a extração de interações, incluindo a leitura do PDF.
+
+Em instalações novas, o criador de `bulas` em
+`scraping_anvisa/anvisa_scraper/controle.py` já inclui os campos.
+Para uma base antiga, execute manualmente, no banco do projeto:
+
+```sql
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE public.bulas
+    ADD COLUMN IF NOT EXISTS principios_ativos TEXT,
+    ADD COLUMN IF NOT EXISTS composicao TEXT;
+COMMIT;
+```
+
+O extrator verifica o esquema antes de carregar o modelo; não aplica essa
+migração automaticamente. O scraper apenas baixa a bula: os novos campos são
+preenchidos ao executar esta etapa de extração, sem baixar PDFs novamente.
+Sem `--reprocessar`, valores já preenchidos são preservados. Com a opção, os
+campos extraídos podem ser substituídos; um princípio ativo ausente no resultado
+nunca apaga um valor já gravado.
+A execução principal seleciona bulas com interações ausentes **ou** com
+`principios_ativos`/`composicao` vazios. Em cada bula, executa somente a etapa
+pendente: interações já gravadas não são extraídas novamente, e cadastros completos
+permanecem intactos. `--reprocessar` solicita novamente as duas etapas. O utilitário
+`tmp/atualizar_cadastro.py` continua disponível para a atualização em andamento.
+Não execute os dois processos ao mesmo tempo sobre as mesmas bulas.
+
+Para tentar novamente todos os cadastros pendentes, extraindo **composição e
+princípios ativos juntos**, execute na pasta `extracao_interacoes`:
+
+```powershell
+.\.venv\Scripts\python.exe -u tmp\atualizar_cadastro.py --todos --executar
+```
+
+Para diagnosticar uma amostra de um CSV anterior com o modelo local, sem acessar
+o banco, use `tmp/diagnosticar_cadastro.py entrada.csv saida.jsonl --por-causa 2`.
+O arquivo de saída deve ser novo. `--nomes` permite escolher os medicamentos da
+amostra e `--detalhar-llm` inclui prompts e respostas no relatório local.
+
+Para preencher somente as composições ausentes, sem carregar a LLM e sem
+classificar princípios ativos, use:
+
+```powershell
+.\.venv\Scripts\python.exe -u tmp\atualizar_cadastro.py --todos --somente-composicao --executar
+```
+
+O texto é copiado das linhas extraídas do PDF até o próximo título principal.
+O modo somente composição não faz validação semântica nem redige um resumo.
 
 ## Como funciona
 
@@ -52,7 +135,8 @@ Os módulos ficam diretamente nesta pasta, sem outra pasta de mesmo nome.
 | `servico.py`, `segmentacao.py` | Fluxo de extração e janelas do modo completo |
 | `modelo_llm.py`, `provedor_llm.py`, `prompts.py`, `esquemas_llm.py` | Modelo local, instruções e esquemas de resposta |
 | `modelos.py`, `erros.py`, `memoria.py` | Tipos, falhas e medição de memória |
-| `repositorio.py`, `criar_tabela.sql` | Persistência e esquema PostgreSQL |
+| `repositorio.py`, `../scraping_anvisa/criar_banco.sql` | Persistência e esquema PostgreSQL |
+| `cadastro.py`, `pipeline_cadastro.py`, `repositorio_cadastro.py` | Extração híbrida e persistência de princípios ativos/composição em `bulas` |
 | `relatorio.py` | Relatório CSV |
 | `reprocessar_pendentes.py`, `diagnosticar_pendentes.py` | Retentativa e diagnóstico |
 | `tests/` | Testes isolados e regressões dos formatos de bula |
@@ -103,7 +187,7 @@ Teste com um medicamento:
 python -u main.py --nome-normalizado "aas" --reprocessar --relatorio relatorios/teste_aas.csv
 ```
 
-Processar até 50 medicamentos ainda não registrados:
+Processar até 50 medicamentos com alguma etapa pendente:
 
 ```cmd
 python -u main.py --inicio 0 --limite 50 --relatorio relatorios/lote_50.csv
@@ -120,9 +204,11 @@ na lista elegível ordenada; a lista muda à medida que resultados são gravados
 Para continuar o trabalho normal, use novamente `--todos`, sem calcular um
 deslocamento com base no lote anterior.
 
-Por padrão, qualquer nome já presente em `bulas_interacoes` fica fora da seleção.
-Use `--reprocessar` para tentar novamente nomes existentes. Cada novo relatório
-deve usar um nome próprio se você quiser preservar medições de execuções anteriores.
+Por padrão, entram apenas medicamentos sem registro de interações ou sem um dos
+campos de cadastro. Etapas já completas aparecem como `IGNORADO_JA_EXISTENTE` no
+relatório. Use `--reprocessar` para executar novamente ambas as etapas de um
+medicamento. Cada novo relatório deve usar um nome próprio se você quiser
+preservar medições de execuções anteriores.
 
 ## Retentar e diagnosticar pendentes
 
@@ -166,7 +252,7 @@ de ausência. O destino deve ser um arquivo novo.
 
 ## Banco de dados
 
-[criar_tabela.sql](criar_tabela.sql) e `repositorio.py` definem o mesmo esquema.
+[criar_banco.sql](../scraping_anvisa/criar_banco.sql) e `repositorio.py` definem o mesmo esquema.
 O comando principal cria a tabela se ela não existir. Uma tabela antiga não é
 migrada automaticamente.
 
