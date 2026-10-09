@@ -8,6 +8,21 @@ from extracao_interacoes.validacao import localizar_titulos_interacoes, localiza
 from helpers import criar_documento
 
 class TestLayoutETriagem(unittest.TestCase):
+    def test_composicao_colada_a_uso_e_ao_corpo_e_separada(self):
+        self.assertEqual(separar_cabecalhos('USO ADULTO COMPOSIÇÃO'), 'USO ADULTO\nCOMPOSIÇÃO')
+        self.assertEqual(separar_cabecalhos('COMPOSIÇÃO Cada comprimido contém:'),
+                         'COMPOSIÇÃO\nCada comprimido contém:')
+        self.assertEqual(separar_cabecalhos('PEDIÁTRICO COMPOSIÇÃO Cada mL contém:'),
+                         'PEDIÁTRICO\nCOMPOSIÇÃO\nCada mL contém:')
+
+    def test_continuacao_esparsa_do_historico_e_nova_bula_clinica(self):
+        textos = ['Dados da submissão eletrônica; Petição/Notificação; Itens de bula; Data de aprovação',
+            'COMPOSIÇÃO', '4. CONTRAINDICAÇÕES', '5. ADVERTÊNCIAS', 'DIZERES LEGAIS',
+            'APRESENTAÇÕES', 'USO ADULTO', 'COMPOSIÇÃO', 'Cada comprimido contém 5 mg de substância.',
+            'VPS04', '1. INDICAÇÕES']
+        doc = criar_documento(textos, [1] + [2] * 4 + [3] * 6)
+        self.assertEqual(paginas_administrativas(doc), {1, 2})
+
     def test_titulo_sozinho_nao_e_dividido(self):
         for titulo in ('6. INTERAÇÕES MEDICAMENTOSAS','7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO'):
             self.assertEqual(separar_cabecalhos(titulo),titulo)

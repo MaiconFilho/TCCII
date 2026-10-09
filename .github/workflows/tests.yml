@@ -90,3 +90,78 @@ jobs:
 
       - name: Executar testes sem modelo, GPU ou PostgreSQL real
         run: python -m unittest discover -s tests -v
+
+  testes-identificacao-interacoes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: identificacao_interacoes/requirements.txt
+
+      - name: Instalar dependências dos testes isolados
+        run: >-
+          python -m pip install
+          PyMuPDF
+          pydantic
+          psutil
+          "psycopg[binary]"
+          python-dotenv
+
+      - name: Executar testes sem modelo ou PostgreSQL real
+        run: python -m unittest discover -s identificacao_interacoes/tests -t . -v
+
+  testes-api-interacoes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: api_interacoes/requirements.txt
+
+      - name: Instalar dependências
+        run: python -m pip install -r api_interacoes/requirements.txt
+
+      - name: Executar testes sem PostgreSQL real
+        run: python -m unittest discover -s api_interacoes/tests -t . -v
+
+  testes-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Verificar lint
+        run: npm run lint
+
+      - name: Verificar tipos
+        run: npm run typecheck
+
+      - name: Gerar build
+        run: npm run build

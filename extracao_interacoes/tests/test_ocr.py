@@ -23,7 +23,7 @@ def pagina(imagens=(), vetores=0, palavras=()):
     p.number = 0
     p.rect = pymupdf.Rect(0, 0, 600, 800)
     p.get_image_info.return_value = [{"bbox": bbox} for bbox in imagens]
-    p.get_cdrawings.return_value = [None] * vetores
+    p.get_cdrawings.return_value = [{"items": [("c",)]}] * vetores
     p.get_text.return_value = palavras
     return p
 
@@ -47,8 +47,19 @@ class TestOCR(unittest.TestCase):
         p = pagina([(0, 300, 600, 700)], palavras=[(0, 0, 500, 100, "texto fora da imagem")])
         self.assertEqual(motivo_ocr(p, "Texto nativo suficiente. " * 20), "imagem_parcial_sem_texto")
 
+    def test_tabela_pequena_abaixo_de_composicao_precisa_ocr(self):
+        p = pagina([(70, 420, 335, 560)], palavras=[(70, 390, 150, 405, "COMPOSIÇÃO:")])
+        self.assertEqual(motivo_ocr(p, "Texto nativo suficiente da bula. " * 20),
+                         "imagem_parcial_sem_texto")
+
     def test_vetores_sem_texto_precisam_ocr(self):
         self.assertEqual(motivo_ocr(pagina(vetores=100), ""), "texto_vetorial_sem_camada_textual")
+
+    def test_grade_vazia_e_tabela_numerica_nao_disparam_ocr(self):
+        p = pagina()
+        p.get_cdrawings.return_value = [{"items": [("l",), ("re",)]}] * 200
+        self.assertIsNone(motivo_ocr(p, ""))
+        self.assertIsNone(motivo_ocr(p, "15,8 0,17 16,5 0,18 " * 100))
 
     def test_pagina_vazia_ou_moldura_nao_precisa_ocr(self):
         self.assertIsNone(motivo_ocr(pagina(), ""))

@@ -77,7 +77,10 @@ class TestRepositorioInteracoes(unittest.TestCase):
                         self.assertIn(f"{nome} = EXCLUDED.{nome}", consulta)
 
     def test_criacao_sql_e_python_tem_o_mesmo_esquema_com_metricas(self):
-        sql = (Path(__file__).resolve().parents[1] / "criar_tabela.sql").read_text(encoding="utf-8")
+        script = (Path(__file__).resolve().parents[2] / "scraping_anvisa" / "criar_banco.sql").read_text(encoding="utf-8")
+        sql = "CREATE TABLE IF NOT EXISTS bulas_interacoes (" + script.split(
+            "CREATE TABLE IF NOT EXISTS bulas_interacoes (", 1
+        )[1].split(";", 1)[0]
         self.assertEqual(" ".join(sql.strip().rstrip(";").split()), " ".join(SQL_CRIAR_TABELA.split()))
         for nome in ("tempo_leitura_segundos", "tempo_inferencia_segundos", "tempo_total_segundos"):
             self.assertIn(f"{nome} NUMERIC(12,3)", sql)
@@ -95,12 +98,16 @@ class TestRepositorioInteracoes(unittest.TestCase):
                         "numero_registro": "001",
                         "expediente": "010",
                         "caminho_pdf": str(pdf_a),
+                        "precisa_interacoes": True,
+                        "precisa_cadastro": True,
                     },
                     {
                         "nome_normalizado": "b",
                         "numero_registro": "002",
                         "expediente": "020",
                         "caminho_pdf": str(pdf_b),
+                        "precisa_interacoes": False,
+                        "precisa_cadastro": True,
                     },
                 ]
             )
@@ -110,10 +117,14 @@ class TestRepositorioInteracoes(unittest.TestCase):
 
         consulta, parametros = cursor.consultas[0]
         self.assertIn("b.status = 'CONCLUIDO'", consulta)
-        self.assertIn("NOT EXISTS", consulta)
+        self.assertIn("LEFT JOIN bulas_interacoes", consulta)
+        self.assertIn("b.principios_ativos", consulta)
+        self.assertIn("b.composicao", consulta)
         self.assertIn("ORDER BY", consulta)
         self.assertEqual(parametros, (None, None, False))
         self.assertEqual([item.nome_normalizado for item in selecionadas], ["b"])
+        self.assertFalse(selecionadas[0].precisa_interacoes)
+        self.assertTrue(selecionadas[0].precisa_cadastro)
 
     def test_selecao_descarta_caminho_inexistente(self) -> None:
         cursor = CursorFalso(
@@ -123,6 +134,8 @@ class TestRepositorioInteracoes(unittest.TestCase):
                     "numero_registro": "001",
                     "expediente": None,
                     "caminho_pdf": "arquivo-que-nao-existe.pdf",
+                    "precisa_interacoes": True,
+                    "precisa_cadastro": False,
                 }
             ]
         )
@@ -193,6 +206,22 @@ class TestRepositorioInteracoes(unittest.TestCase):
         criar_repositorio(cursor).selecionar_bulas(reprocessar=True)
 
         self.assertEqual(cursor.consultas[0][1], (None, None, True))
+
+    def test_reprocessar_marca_as_duas_etapas_mesmo_ja_preenchidas(self) -> None:
+        with tempfile.TemporaryDirectory() as pasta:
+            pdf = Path(pasta) / "bula.pdf"
+            pdf.write_bytes(b"%PDF")
+            cursor = CursorFalso([{
+                "nome_normalizado": "medicamento",
+                "numero_registro": "001",
+                "expediente": None,
+                "caminho_pdf": str(pdf),
+                "precisa_interacoes": False,
+                "precisa_cadastro": False,
+            }])
+            selecionadas = criar_repositorio(cursor).selecionar_bulas(reprocessar=True)
+        self.assertTrue(selecionadas[0].precisa_interacoes)
+        self.assertTrue(selecionadas[0].precisa_cadastro)
 
     def test_selecao_por_nome_normalizado_e_exata_e_parametrizada(self) -> None:
         cursor = CursorFalso()

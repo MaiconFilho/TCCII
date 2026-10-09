@@ -490,6 +490,21 @@ amostragem com gramática; não é velocidade de geração.
 | `IDENTIFICACAO_LOTE_RESUMOS` | `6` | Relações por chamada de resumo/correção em `duas_etapas` (1 a 12). |
 | `IDENTIFICACAO_TEST_DATABASE_URL` | — | Só testes: banco isolado. |
 
+## Testes
+
+Os testes unitários verificam a estratégia de dicionário, a segmentação, a
+validação das evidências, os vínculos, a retomada e as migrações. Execute a
+partir da raiz do projeto:
+
+```cmd
+python -m unittest discover -s identificacao_interacoes/tests -t . -v
+```
+
+Os testes com PostgreSQL real só são habilitados quando
+`IDENTIFICACAO_TEST_DATABASE_URL` aponta para um banco isolado cujo nome contém
+`test`. Sem essa variável, eles são pulados e não acessam o banco do projeto.
+O workflow do GitHub executa a suíte isolada sem carregar o modelo local.
+
 ## Execução validada (estratégia com LLM)
 
 Os resultados da estratégia padrão estão na seção dela, acima.

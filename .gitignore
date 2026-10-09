@@ -65,8 +65,5 @@ hub/
 identificacao_interacoes/relatorios/
 identificacao_interacoes/logs/
 identificacao_interacoes/avaliacao/
-identificacao_interacoes/tests/
-api_interacoes/tests/
 api_interacoes/relatorios/
 api_interacoes/logs/
-frontend/tests/

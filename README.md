@@ -69,9 +69,11 @@ conversao_interacoes_vetores/  chunking, embeddings e persistência com pgvector
   README.md                 modelos avaliados, chunking, hash e comandos
 identificacao_interacoes/    relações estruturadas, validação, vínculos e versões
   migracoes/                migrações aditivas das novas tabelas e vínculos
+  tests/                    regras, persistência e migrações
   main_identificacao.py     CLI (python -m identificacao_interacoes)
   README.md                 regras, tabelas e comandos
 api_interacoes/              API FastAPI de consulta (python -m api_interacoes)
+  tests/                    contratos, estados e consultas
   README.md                 endpoints, contratos e integração com o frontend
 ```
 
