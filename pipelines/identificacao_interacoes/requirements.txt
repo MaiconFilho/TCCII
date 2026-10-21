@@ -1,0 +1,12 @@
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+
+# O provedor GGUF é o mesmo de extracao_interacoes (LlamaCppProvider), que
+# importa PyMuPDF ao carregar o pacote; por isso as versões acompanham aquele
+# módulo. O ambiente pipelines/extracao_interacoes/.venv já atende a esta lista.
+PyMuPDF>=1.24
+huggingface-hub>=0.27
+llama-cpp-python>=0.3.16
+psutil>=6.0
+psycopg[binary]>=3.2
+python-dotenv>=1.0
+pydantic>=2.10

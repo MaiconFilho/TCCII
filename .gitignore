@@ -1,11 +1,11 @@
 .venv/
-frontend/.tools/
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/tsconfig.tsbuildinfo
-frontend/AGENTS.md
-frontend/CLAUDE.md
+apps/frontend/.tools/
+apps/frontend/node_modules/
+apps/frontend/.next/
+apps/frontend/out/
+apps/frontend/tsconfig.tsbuildinfo
+apps/frontend/AGENTS.md
+apps/frontend/CLAUDE.md
 venv/
 __pycache__/
 *.py[cod]
@@ -26,15 +26,15 @@ __pycache__/
 *.tmp
 *.temp
 controle/*.csv
-scraping_anvisa/controle/*.csv
-scraping_anvisa/pdfs/*.pdf
+pipelines/scraping_anvisa/controle/*.csv
+pipelines/scraping_anvisa/pdfs/*.pdf
 # Saidas locais da extracao: relatorios, backups de retentativa e logs.
-extracao_interacoes/relatorios/
-extracao_interacoes/logs/
+pipelines/extracao_interacoes/relatorios/
+pipelines/extracao_interacoes/logs/
 .cache/
 huggingface/
-extracao_interacoes/modelos_hf/
-extracao_interacoes/modelos_ocr/
+pipelines/extracao_interacoes/modelos_hf/
+pipelines/extracao_interacoes/modelos_ocr/
 *.gguf
 *.ggml
 tmp/
@@ -47,9 +47,9 @@ Thumbs.db
 ~$*
 
 # Saidas locais da vetorizacao: modelo baixado, relatorios e logs.
-conversao_interacoes_vetores/modelos_hf/
-conversao_interacoes_vetores/relatorios/
-conversao_interacoes_vetores/logs/
+pipelines/conversao_interacoes_vetores/modelos_hf/
+pipelines/conversao_interacoes_vetores/relatorios/
+pipelines/conversao_interacoes_vetores/logs/
 # Caches e pesos do Hugging Face em qualquer pasta do projeto.
 modelos_hf/
 .huggingface/
@@ -62,8 +62,17 @@ hub/
 *.npz
 
 # Saidas locais da identificacao das interacoes: relatorios e logs.
-identificacao_interacoes/relatorios/
-identificacao_interacoes/logs/
-identificacao_interacoes/avaliacao/
-api_interacoes/relatorios/
-api_interacoes/logs/
+pipelines/identificacao_interacoes/relatorios/
+pipelines/identificacao_interacoes/logs/
+pipelines/identificacao_interacoes/avaliacao/
+apps/api_interacoes/relatorios/
+apps/api_interacoes/logs/
+pipelines/resumos_interacoes/relatorios/
+pipelines/resumos_interacoes/logs/
+
+# Artefatos locais e backups preservados, nunca publicados.
+backups_banco/*
+!backups_banco/README.md
+.doc_build_venv/
+TCCII_publish_worktree/
+docs/renderizacao*/
