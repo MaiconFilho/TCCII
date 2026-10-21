@@ -114,6 +114,9 @@ jobs:
       - name: Executar testes sem modelo ou PostgreSQL real
         run: python -m unittest discover -s pipelines/identificacao_interacoes/tests -t . -v
 
+      - name: Validar resumos com provedor simulado
+        run: python -m unittest discover -s pipelines/resumos_interacoes/tests -t . -v
+
   testes-api-interacoes:
     runs-on: ubuntu-latest
 
