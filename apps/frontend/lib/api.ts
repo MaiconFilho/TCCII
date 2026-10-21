@@ -71,6 +71,7 @@ export interface Relacao {
   alvo: string
   tipo_alvo: TipoAlvo
   resumo: string
+  resumo_card: string | null
   evidencia: string
   fonte: FonteBula
   processamento: Processamento
@@ -102,7 +103,13 @@ export interface RespostaInteracoes {
   mensagem: string
   cobertura: Cobertura
   relacoes: Relacao[]
-  totais_por_sentido?: { nesta_bula: number; em_outras_bulas: number }
+  total_interacoes: number
+  resumo_geral: {
+    status: "CONCLUIDO" | "PENDENTE"
+    texto: string | null
+    gerado_em: string | null
+    processamento_id: number | null
+  }
   paginacao: { pagina: number; tamanho_pagina: number; total: number; total_paginas: number }
 }
 
@@ -111,6 +118,7 @@ export interface ItemPar {
   alvo: string
   tipo_alvo: TipoAlvo
   resumo: string
+  resumo_card: string | null
   criterio_vinculo: CriterioVinculo | null
   /** Texto do cadastro que fundamentou o vínculo (ex.: o princípio ativo "paracetamol"). */
   fundamento_vinculo?: string | null

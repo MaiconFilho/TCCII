@@ -19,8 +19,15 @@ class TestMigracoes(unittest.TestCase):
         migracoes = listar_migracoes()
         self.assertEqual(
             [m.name for m in migracoes],
-            ["001_criar_interacoes.sql", "002_vigencia_aprovada.sql", "003_vinculo_sem_sal.sql"],
+            ["001_criar_interacoes.sql", "002_vigencia_aprovada.sql", "003_vinculo_sem_sal.sql", "004_resumos_interacoes.sql", "005_controle_resumos_cards.sql"],
         )
+        sql_resumos = conferir_aditiva(migracoes[3])
+        self.assertIn("ADD COLUMN IF NOT EXISTS resumo_geral", sql_resumos)
+        self.assertIn("ADD COLUMN IF NOT EXISTS resumo_card", sql_resumos)
+        sql_cards = conferir_aditiva(migracoes[4])
+        for campo in ("resumo_status", "resumo_modelo", "resumo_tempo_segundos",
+                      "resumo_erro", "resumo_atualizado_em"):
+            self.assertIn(f"ADD COLUMN IF NOT EXISTS {campo}", sql_cards)
         sql_sem_sal = conferir_aditiva(migracoes[2])
         self.assertIn("'PRINCIPIO_ATIVO_SEM_SAL'", sql_sem_sal)
         for criterio in ("PRINCIPIO_ATIVO_EXATO", "NOME_MEDICAMENTO_EXATO", "COMPOSICAO_EQUIVALENCIA_DECLARADA"):

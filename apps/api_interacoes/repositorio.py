@@ -6,7 +6,7 @@
   ``LEFT JOIN``/``EXISTS`` e nunca elimina alimentos, classes ou alvos sem
   medicamento associado.
 - A vigência vem da view ``processamentos_interacoes_vigentes`` das migrações
-  de ``identificacao_interacoes/migracoes`` (a 002 deixa de fora resultados em
+  de ``pipelines/identificacao_interacoes/migracoes`` (a 002 deixa de fora resultados em
   revisão e versões retiradas). A API não cria nem altera esquema.
 """
 
@@ -106,6 +106,7 @@ COLUNAS_RELACAO = f"""
     i.alvo,
     i.tipo_alvo,
     i.resumo,
+    NULLIF(BTRIM(i.resumo_card), '') AS resumo_card,
     i.evidencia,
     {NOME_EXIBICAO.format(t="bo")} AS origem_exibicao,
     v.id AS processamento_id,
@@ -123,19 +124,10 @@ COLUNAS_RELACAO = f"""
 # empurrada para dentro da view (DISTINCT ON), evitando calcular o hash de
 # todas as bulas a cada consulta.
 SQL_RELACOES_MEDICAMENTO = f"""
-WITH candidatas AS (
-    SELECT %(nome)s::text AS medicamento_origem
-    UNION
-    SELECT i.medicamento_origem
-    FROM interacoes_medicamentos AS im
-    JOIN interacoes AS i ON i.id = im.interacao_id
-    WHERE im.medicamento_relacionado = %(nome)s
-      AND im.invalidado_em IS NULL
-),
-vigentes AS (
+WITH vigentes AS (
     SELECT *
     FROM processamentos_interacoes_vigentes
-    WHERE medicamento_origem = ANY(ARRAY(SELECT medicamento_origem FROM candidatas))
+    WHERE medicamento_origem = %(nome)s
       AND status IN ('CONCLUIDO_COM_RELACOES', 'CONCLUIDO_SEM_RELACOES')
 ),
 relacoes AS (
@@ -144,18 +136,6 @@ relacoes AS (
     JOIN vigentes AS v ON v.id = i.processamento_id
     JOIN bulas AS bo ON bo.nome_normalizado = i.medicamento_origem
     WHERE i.medicamento_origem = %(nome)s
-    UNION ALL
-    SELECT 1 AS grupo, {COLUNAS_RELACAO}
-    FROM interacoes AS i
-    JOIN vigentes AS v ON v.id = i.processamento_id
-    JOIN bulas AS bo ON bo.nome_normalizado = i.medicamento_origem
-    WHERE i.medicamento_origem <> %(nome)s
-      AND EXISTS (
-          SELECT 1 FROM interacoes_medicamentos AS im
-          WHERE im.interacao_id = i.id
-            AND im.medicamento_relacionado = %(nome)s
-            AND im.invalidado_em IS NULL
-      )
 )
 SELECT r.*, COUNT(*) OVER () AS total
 FROM relacoes AS r
@@ -168,7 +148,7 @@ SQL_CONTAR_RELACOES = SQL_RELACOES_MEDICAMENTO.split("SELECT r.*, COUNT(*) OVER 
 )
 SQL_RELACOES_PARA_CONTAGEM = SQL_RELACOES_MEDICAMENTO.split(
     "SELECT r.*, COUNT(*) OVER () AS total"
-)[0] + "SELECT grupo, medicamento_origem, alvo, evidencia FROM relacoes"
+)[0] + "SELECT id, grupo, medicamento_origem, alvo, evidencia FROM relacoes ORDER BY id"
 
 SQL_RELACOES_PAR = f"""
 WITH vigentes AS (
@@ -286,6 +266,9 @@ class RepositorioConsulta:
                 "WHERE TO_REGCLASS('public.' || nome) IS NULL",
                 (list(OBJETOS_NECESSARIOS),),
             )
+            if not linhas:
+                self._consultar("SELECT resumo_card FROM interacoes LIMIT 0")
+                self._consultar("SELECT resumo_geral, resumo_gerado_em FROM processamentos_interacoes LIMIT 0")
         except (BancoIndisponivelError, EsquemaAusenteError):
             return False, False
         return True, not linhas
@@ -389,6 +372,23 @@ class RepositorioConsulta:
     def relacoes_para_contagem(self, nome: str) -> list[dict]:
         """Campos mínimos de todas as relações para contar apenas as exibíveis."""
         return self._consultar(SQL_RELACOES_PARA_CONTAGEM, {"nome": nome})
+
+    def relacoes_por_ids(self, nome: str, ids: list[int]) -> list[dict]:
+        sql = SQL_RELACOES_MEDICAMENTO.split("SELECT r.*, COUNT(*) OVER () AS total")[0]
+        return self._consultar(sql + "SELECT * FROM relacoes WHERE id = ANY(%(ids)s) ORDER BY id",
+                               {"nome": nome, "ids": ids}) if ids else []
+
+    def resumo_geral(self, processamento_id: int | None) -> dict | None:
+        if processamento_id is None:
+            return None
+        linhas = self._consultar("""
+            SELECT p.resumo_geral AS texto, p.resumo_gerado_em AS gerado_em,
+                   p.id AS processamento_id, 'CONCLUIDO' AS status
+            FROM processamentos_interacoes p
+            JOIN processamentos_interacoes_vigentes v ON v.id = p.id
+            WHERE p.id = %s AND NULLIF(BTRIM(p.resumo_geral), '') IS NOT NULL
+        """, (processamento_id,))
+        return linhas[0] if linhas else None
 
     def relacoes_do_par(self, a: str, b: str) -> list[dict]:
         return self._consultar(SQL_RELACOES_PAR, {"a": a, "b": b, "nomes": [a, b]})

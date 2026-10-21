@@ -99,6 +99,12 @@ class RepositorioFalso:
     def relacoes_para_contagem(self, nome):
         return [r for r in self.relacoes if r["medicamento_origem"] == nome or r["grupo"] == 1 and nome == "varfarina"]
 
+    def relacoes_por_ids(self, nome, ids):
+        return [r for r in self.relacoes if r["id"] in ids and r["medicamento_origem"] == nome]
+
+    def resumo_geral(self, processamento_id):
+        return None
+
     def relacoes_do_par(self, a, b):
         return self.par
 
@@ -137,16 +143,19 @@ class TestApi(unittest.TestCase):
                 self.assertEqual(resposta.status_code, 422)
                 self.assertEqual(resposta.json()["erro"], "parametro_invalido")
 
-    def test_consulta_individual_inclui_alvos_sem_vinculo_e_outras_bulas(self) -> None:
+    def test_consulta_individual_inclui_alvos_sem_vinculo_apenas_da_propria_bula(self) -> None:
         corpo = self.cliente.get("/api/interacoes", params={"medicamento": "varfarina"}).json()
         self.assertTrue(corpo["interacao_identificada"])
         self.assertTrue(corpo["mensagem"].startswith("Interação identificada nas fontes analisadas."))
         tipos = {r["alvo"]: (r["tipo_alvo"], r["sentido"]) for r in corpo["relacoes"]}
         self.assertEqual(tipos["saladas verdes"], ("GRUPO_ALIMENTAR", "DESCRITA_NA_BULA_PESQUISADA"))
         self.assertEqual(tipos["anticoagulantes"][0], "CLASSE_FARMACOLOGICA")
-        self.assertEqual(tipos["varfarina"][1], "DESCRITA_EM_OUTRA_BULA")
+        self.assertNotIn("varfarina", tipos)
         primeira = corpo["relacoes"][0]
-        self.assertEqual(corpo["totais_por_sentido"], {"nesta_bula": 3, "em_outras_bulas": 1})
+        self.assertEqual(corpo["total_interacoes"], 3)
+        self.assertNotIn("totais_por_sentido", corpo)
+        self.assertNotIn("em_outras_bulas", str(corpo))
+        self.assertEqual(corpo["resumo_geral"]["status"], "PENDENTE")
         self.assertEqual(primeira["gravidade"], "desconhecida")
         self.assertIsNone(primeira["fonte"]["url_pdf"])
         self.assertEqual(primeira["fonte"]["data_publicacao_bula"][:10], "2026-06-30")
@@ -159,11 +168,30 @@ class TestApi(unittest.TestCase):
         corpo = self.cliente.get(
             "/api/interacoes", params={"medicamento": "varfarina", "pagina": 2, "tamanho_pagina": 3}
         ).json()
-        self.assertEqual(corpo["paginacao"], {"pagina": 2, "tamanho_pagina": 3, "total": 4, "total_paginas": 2})
-        self.assertEqual([r["id"] for r in corpo["relacoes"]], [13])
+        self.assertEqual(corpo["paginacao"], {"pagina": 2, "tamanho_pagina": 3, "total": 3, "total_paginas": 1})
+        self.assertEqual(corpo["relacoes"], [])
         for params in ({"pagina": 0}, {"tamanho_pagina": 101}):
             resposta = self.cliente.get("/api/interacoes", params={"medicamento": "varfarina", **params})
             self.assertEqual(resposta.status_code, 422)
+
+    def test_resumos_prontos_e_evidencia_literal_separados(self) -> None:
+        self.repositorio.resumo_geral = lambda pid: {
+            "status": "CONCLUIDO", "texto": "Primeiro parágrafo.\n\nSegundo parágrafo.",
+            "gerado_em": DATA, "processamento_id": pid,
+        }
+        self.repositorio.relacoes[0]["resumo_card"] = "Resumo de apresentação já gerado."
+        corpo = self.cliente.get("/api/interacoes", params={"medicamento": "varfarina"}).json()
+        self.assertEqual(corpo["resumo_geral"]["status"], "CONCLUIDO")
+        self.assertEqual(corpo["resumo_geral"]["processamento_id"], 1)
+        self.assertEqual(corpo["relacoes"][0]["resumo_card"], "Resumo de apresentação já gerado.")
+        self.assertEqual(corpo["relacoes"][0]["evidencia"], self.repositorio.relacoes[0]["evidencia"])
+
+    def test_paginacao_filtra_negacoes_antes_do_limite(self) -> None:
+        self.repositorio.relacoes.insert(0, linha_relacao(
+            1, "varfarina", "azitromicina", "PRINCIPIO_ATIVO", evidencia="Azitromicina não estudado."))
+        corpo = self.cliente.get("/api/interacoes", params={"medicamento": "varfarina", "tamanho_pagina": 1}).json()
+        self.assertEqual(corpo["relacoes"][0]["id"], 10)
+        self.assertEqual(corpo["paginacao"]["total"], 3)
 
     def test_totais_contam_interacoes_agrupadas_sem_repetir_evidencias(self) -> None:
         self.repositorio.relacoes.extend([
@@ -171,8 +199,8 @@ class TestApi(unittest.TestCase):
             linha_relacao(15, "aas", "varfarina", "PRINCIPIO_ATIVO", grupo=1),
         ])
         corpo = self.cliente.get("/api/interacoes", params={"medicamento": "varfarina"}).json()
-        self.assertEqual(corpo["totais_por_sentido"], {"nesta_bula": 3, "em_outras_bulas": 1})
-        self.assertEqual(corpo["paginacao"]["total"], 6)
+        self.assertEqual(corpo["total_interacoes"], 3)
+        self.assertEqual(corpo["paginacao"]["total"], 4)
 
     def test_concluido_sem_relacoes_versus_pendente(self) -> None:
         concluido = self.cliente.get("/api/interacoes", params={"medicamento": "losec"}).json()
@@ -212,6 +240,10 @@ class TestApi(unittest.TestCase):
         corpo = self.cliente.get("/api/interacoes/par", params={"medicamento_a": "varfarina", "medicamento_b": "losec"}).json()
         self.assertTrue(corpo["interacao_identificada"])
         self.assertEqual([g["sentido"] for g in corpo["evidencias"]], ["BULA_A_CITA_B", "BULA_B_CITA_A"])
+        self.assertNotIn("resumo_geral", corpo)
+        self.repositorio.par[0]["resumo_card"] = "Resumo específico do par."
+        atualizado = self.cliente.get("/api/interacoes/par", params={"medicamento_a": "varfarina", "medicamento_b": "losec"}).json()
+        self.assertEqual(atualizado["evidencias"][0]["itens"][0]["resumo_card"], "Resumo específico do par.")
         self.assertEqual(len(corpo["evidencias"][0]["itens"]), 2)
         self.assertEqual(corpo["evidencias"][1]["fonte"]["medicamento"]["nome_normalizado"], "losec")
         self.assertEqual([a["itens"][0]["alvo"] for a in corpo["alertas_nao_confirmados"]], ["anticoagulantes"])
@@ -313,7 +345,7 @@ class TestApi(unittest.TestCase):
             "O serviço de consulta está indisponível no momento.",
         )
         self.repositorio.falhar = False
-        self.repositorio.relacoes_do_medicamento = lambda *a: (_ for _ in ()).throw(
+        self.repositorio.relacoes_para_contagem = lambda *a: (_ for _ in ()).throw(
             RuntimeError("senha=segredo C:\\caminho\\interno")
         )
         cliente = TestClient(criar_app(ConfiguracaoApi(dsn="x"), self.repositorio), raise_server_exceptions=False)
@@ -372,9 +404,9 @@ class TestInicializacaoSemInferencia(unittest.TestCase):
             "from apps.api_interacoes.configuracao import ConfiguracaoApi\n"
             "criar_app(ConfiguracaoApi(dsn='postgresql://ninguem@127.0.0.1:1/x'))\n"
             "proibidos = ('llama_cpp', 'torch', 'transformers', 'pymupdf', 'fitz', 'selenium',"
-            " 'extracao_interacoes', 'conversao_interacoes_vetores', 'pipelines.identificacao_interacoes.servico',"
-            " 'pipelines.identificacao_interacoes.provedor', 'huggingface_hub')\n"
-            "carregados = sorted(m for m in sys.modules if m.split('.')[0] in proibidos or m in proibidos)\n"
+            " 'pipelines.extracao_interacoes', 'pipelines.conversao_interacoes_vetores', 'pipelines.identificacao_interacoes.servico',"
+            " 'pipelines.identificacao_interacoes.provedor', 'pipelines.resumos_interacoes.provedor', 'huggingface_hub')\n"
+            "carregados = sorted(m for m in sys.modules if any(m == p or m.startswith(p + '.') for p in proibidos))\n"
             "print(carregados)\n"
             "sys.exit(1 if carregados else 0)\n"
         )

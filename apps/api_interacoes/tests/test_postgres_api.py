@@ -99,30 +99,29 @@ class TestApiPostgresReal(unittest.TestCase):
     def test_consulta_individual_sem_eliminar_alvos_sem_vinculo(self) -> None:
         corpo = self.get("/api/interacoes", medicamento="marevan")
         alvos = {r["alvo"]: r for r in corpo["relacoes"]}
-        self.assertEqual(set(alvos), {"ácido acetilsalicílico", "saladas verdes", "anti-inflamatórios", "varfarina sódica"})
+        self.assertEqual(set(alvos), {"ácido acetilsalicílico", "saladas verdes", "anti-inflamatórios"})
         self.assertEqual(alvos["saladas verdes"]["medicamentos_relacionados"], [])
         self.assertEqual(
             sorted(m["nome_normalizado"] for m in alvos["ácido acetilsalicílico"]["medicamentos_relacionados"]),
             ["aas", "aspirina"],
         )
-        self.assertEqual(alvos["varfarina sódica"]["sentido"], "DESCRITA_EM_OUTRA_BULA")
-        self.assertEqual(alvos["varfarina sódica"]["fonte"]["medicamento"]["nome_normalizado"], "aas")
+        self.assertTrue(all(r["fonte"]["medicamento"]["nome_normalizado"] == "marevan" for r in corpo["relacoes"]))
         self.assertTrue(corpo["interacao_identificada"])
         self.assertTrue(all(r["evidencia"] in TEXTO_MAREVAN + TEXTO_AAS for r in corpo["relacoes"]))
 
     def test_medicamento_so_citado_por_outra_bula(self) -> None:
         corpo = self.get("/api/interacoes", medicamento="aspirina")
         self.assertEqual(corpo["analise_bula"]["estado"], "EXTRACAO_INDISPONIVEL")
-        self.assertEqual([r["alvo"] for r in corpo["relacoes"]], ["ácido acetilsalicílico"])
-        self.assertTrue(corpo["interacao_identificada"])
+        self.assertEqual(corpo["relacoes"], [])
+        self.assertIsNone(corpo["interacao_identificada"])
 
     def test_paginacao_estavel(self) -> None:
         ids = []
         for pagina in (1, 2, 3, 4):
             corpo = self.get("/api/interacoes", medicamento="marevan", pagina=pagina, tamanho_pagina=1)
-            self.assertEqual(corpo["paginacao"]["total"], 4)
+            self.assertEqual(corpo["paginacao"]["total"], 3)
             ids += [r["id"] for r in corpo["relacoes"]]
-        self.assertEqual(len(set(ids)), 4)
+        self.assertEqual(len(set(ids)), 3)
         self.assertEqual(self.get("/api/interacoes", medicamento="marevan", pagina=9, tamanho_pagina=1)["relacoes"], [])
 
     def test_par_nos_dois_sentidos(self) -> None:
@@ -197,7 +196,14 @@ class TestApiPostgresReal(unittest.TestCase):
         )
         corpo = self.get("/api/interacoes", medicamento="marevan")
         self.assertEqual(corpo["analise_bula"]["estado"], "DESATUALIZADO")
-        self.assertEqual([r["alvo"] for r in corpo["relacoes"]], ["varfarina sódica"])
+        self.assertEqual(corpo["relacoes"], [])
+        self.assertEqual(corpo["total_interacoes"], 0)
+        # A consulta individual contém somente a própria bula; a outra fonte
+        # permanece disponível na consulta de AAS e na consulta do par.
+        outra = self.get("/api/interacoes", medicamento="aas")
+        self.assertEqual([r["alvo"] for r in outra["relacoes"]], ["varfarina sódica"])
+        par = self.get("/api/interacoes/par", medicamento_a="marevan", medicamento_b="aas")
+        self.assertEqual([e["sentido"] for e in par["evidencias"]], ["BULA_B_CITA_A"])
 
     def test_cobertura_incompleta_informada(self) -> None:
         cobertura = self.get("/api/interacoes", medicamento="losec")["cobertura"]

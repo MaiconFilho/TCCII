@@ -119,6 +119,16 @@ CABECAS_GENERICAS = frozenset(
 NEGACAO_ORIGINAL = re.compile(r"\b(?:não|nao|nem|nunca|jamais|sem|exceto|salvo)\b(?:\s+\S+){0,5}", re.I)
 
 
+def relacao_nao_positiva(linha: dict) -> bool:
+    """Filtro compartilhado pela consulta e pela apresentação de resumos."""
+    evidencia = mapear_texto(linha.get("evidencia") or "", unir_hifenizacao=True).texto
+    alvo = normalizar_alvo(linha.get("alvo") or "")
+    oracoes = oracoes_do_alvo(evidencia, alvo)
+    return any(AUSENCIA.search(oracao) for oracao in oracoes) and not any(
+        RECOMENDACAO_FORTE.search(oracao) for oracao in oracoes
+    )
+
+
 def alvo_generico(alvo_normalizado: str, tipo_alvo: TipoAlvo) -> bool:
     if tipo_alvo == TipoAlvo.EXAME_LABORATORIAL:
         return False

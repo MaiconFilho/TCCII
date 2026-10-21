@@ -43,7 +43,7 @@ cadastro; exclui a leitura compartilhada e a gravação. As métricas anteriores
 continuam medindo apenas a extração de interações, incluindo a leitura do PDF.
 
 Em instalações novas, o criador de `bulas` em
-`scraping_anvisa/anvisa_scraper/controle.py` já inclui os campos.
+`pipelines/scraping_anvisa/anvisa_scraper/controle.py` já inclui os campos.
 Para uma base antiga, execute manualmente, no banco do projeto:
 
 ```sql
@@ -150,7 +150,7 @@ precisam estar acessíveis pelos caminhos registrados nela.
 No Prompt de Comando do Windows, a partir da raiz do repositório:
 
 ```cmd
-cd extracao_interacoes
+cd pipelines\extracao_interacoes
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install --upgrade pip

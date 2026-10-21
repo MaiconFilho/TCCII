@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import {
-  AlertTriangle, ArrowLeftRight, ArrowRight, Download, FileText, HelpCircle, Info, Link2, Loader2,
-  Pill, Quote, Search, SearchX, ShieldCheck, WifiOff, X,
+  AlertTriangle, ArrowLeftRight, ArrowRight, BookOpen, Download, FileText, HelpCircle, Info, Link2, Loader2,
+  Pill, Quote, Search, ShieldCheck, Sparkles, WifiOff, X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import {
   api, ehCancelamento, ErroApi,
@@ -22,11 +21,12 @@ import {
   type MedicamentoRelacionado, type Processamento, type Relacao, type RespostaInteracoes, type RespostaPar,
 } from "@/lib/api"
 import { bulaUrl, chaveCitacao, citacoesUnicas, CRITERIO, ESTADO, evidenciasUnicas, TOM_BADGE, fold, formatarData, nomeLegivel } from "@/lib/interacoes-data"
-import { citaParteDoComposto, ligacoesDoPar, montarLigacao, paresDeMedicamentos, type Ligacao } from "@/lib/comparacao"
+import { citaParteDoComposto, ligacoesDoPar, paresDeMedicamentos, type Ligacao } from "@/lib/comparacao"
 
 const TAMANHO_PAGINA = 50
 // Máximo aceito pela API (API_AUTOCOMPLETE_LIMITE_MAXIMO).
 const LIMITE_SUGESTOES = 20
+const MEDICAMENTO_AUSENTE = 'Medicamento não encontrado entre os disponíveis para consulta. Verifique o nome ou selecione uma sugestão.'
 /** Trecho em uma linha, sem o marcador de lista do PDF no início. */
 const compactar = (texto: string) =>
   texto.replace(/\s+/g, " ").trim().replace(/^[-•▪●◦*]+\s*/, "")
@@ -122,7 +122,7 @@ function FluxoLigacao({ ligacao }: { ligacao: Ligacao }) {
 }
 
 /* ---------- Autocomplete ligado à API ---------- */
-function MedicineInput({ id, value, onChange, selected, onSelect, onSubmit, placeholder }: {
+function MedicineInput({ id, value, onChange, selected, onSelect, onSubmit, placeholder, orientacaoAusente }: {
   id: string
   value: string
   onChange: (texto: string) => void
@@ -131,6 +131,7 @@ function MedicineInput({ id, value, onChange, selected, onSelect, onSubmit, plac
   /** Recebe a sugestão escolhida agora: o estado do pai ainda não foi atualizado. */
   onSubmit: (escolhido?: Medicamento) => void
   placeholder: string
+  orientacaoAusente: string
 }) {
   const [open, setOpen] = React.useState(false)
   const [active, setActive] = React.useState(0)
@@ -183,23 +184,32 @@ function MedicineInput({ id, value, onChange, selected, onSelect, onSubmit, plac
 
   return (
     <div className="relative flex-1">
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Search className="pointer-events-none absolute left-3 top-5.5 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         id={id} value={value} placeholder={placeholder} autoComplete="off"
         role="combobox" aria-expanded={open} aria-controls={`${id}-list`}
         className="h-11 pl-9 pr-9 text-[15px]"
         onChange={(e) => { onChange(e.target.value); setOpen(true); setActive(0) }}
-        onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={onKeyDown}
+        onFocus={() => setOpen(true)} onBlur={(e) => { if (!e.currentTarget.parentElement?.contains(e.relatedTarget)) setOpen(false) }} onKeyDown={onKeyDown}
       />
-      {carregando && <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
-      {open && buscar && (
-        <div id={`${id}-list`} role="listbox" className="absolute inset-x-0 top-[calc(100%+6px)] z-30 max-h-80 overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+      {carregando && <Loader2 className="absolute right-3 top-5.5 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
+      {buscar && (open || visiveis.length === 0) && (
+        <div id={`${id}-list`} role="listbox" className={cn(
+          "z-30 max-h-80 overflow-y-auto overscroll-contain rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg",
+          visiveis.length > 0
+            ? "absolute inset-x-0 top-[calc(100%+6px)]"
+            : "relative mt-1.5 sm:absolute sm:inset-x-0 sm:top-[calc(100%+6px)] sm:mt-0",
+          // No celular, o aviso permanece no fluxo ao sair do campo para não mover o botão durante o clique.
+          !open && "sm:hidden",
+        )}
           // Arrastar a barra de rolagem não pode tirar o foco do campo (fecharia a lista).
           onMouseDown={(e) => e.preventDefault()}>
           {erro ? (
             <p className="px-3 py-4 text-center text-sm text-destructive">{erro}</p>
           ) : visiveis.length === 0 ? (
-            <p className="py-5 text-center text-sm text-muted-foreground">{sugestoes.termo !== q || carregando ? "Buscando…" : "Nenhum medicamento encontrado."}</p>
+            <div className="space-y-2 p-3 text-center text-sm text-muted-foreground">
+              <p>{sugestoes.termo !== q || carregando ? 'Buscando…' : orientacaoAusente}</p>
+            </div>
           ) : (
             <>
               <p className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">
@@ -318,7 +328,6 @@ function JanelaEvidencia({ detalhe, onClose }: { detalhe: DetalheEvidencia | nul
                   {bulas.length === 1 ? [
                     formatarData(detalhe.fonte.data_publicacao_bula) && `Publicada em ${formatarData(detalhe.fonte.data_publicacao_bula)}`,
                     detalhe.fonte.numero_registro && `Registro ${detalhe.fonte.numero_registro}`,
-                    formatarData(detalhe.processamento.data_processamento) && `analisada em ${formatarData(detalhe.processamento.data_processamento)}`,
                   ].filter(Boolean).join(" · ") : bulas.map((b) => nomeLegivel(b.medicamento.nome_exibicao)).join(" · ")}
                 </p>
               </div>
@@ -404,26 +413,15 @@ function VistaMedicamento({ resultado, onMais, onEvidence }: {
   const { dados, relacoes } = resultado
   const nome = nomeLegivel(dados.medicamento.nome_exibicao)
   const proprias = relacoes.filter((r) => r.sentido === "DESCRITA_NA_BULA_PESQUISADA")
-  const outras = relacoes.filter((r) => r.sentido === "DESCRITA_EM_OUTRA_BULA")
-  const gruposProprios = agrupar(proprias, (r) => fold(r.alvo))
-  const gruposOutros = agrupar(outras, (r) => r.fonte.medicamento.nome_normalizado)
-  const totaisPorSentido = dados.totais_por_sentido ?? {
-    nesta_bula: gruposProprios.length,
-    em_outras_bulas: Math.max(0, dados.paginacao.total - gruposProprios.length),
-  }
-  const totalInteracoes = totaisPorSentido.nesta_bula + totaisPorSentido.em_outras_bulas
-  const [tab, setTab] = React.useState<"nesta" | "outras">(gruposProprios.length > 0 ? "nesta" : "outras")
+  const grupos = agrupar(proprias, (r) => fold(r.alvo))
+  const [detalhesVisiveis, setDetalhesVisiveis] = React.useState(false)
   const [carregadasAgora, setCarregadasAgora] = React.useState(0)
   const faltam = dados.paginacao.total - relacoes.length
 
-  const carregarMaisVisivel = async () => {
+  const carregarMais = async () => {
     setCarregadasAgora(0)
     const novas = await onMais()
     setCarregadasAgora(novas.length)
-    if (tab === "nesta" && novas.length > 0 && novas.every((r) => r.sentido === "DESCRITA_EM_OUTRA_BULA")) {
-      setTab("outras")
-      requestAnimationFrame(() => document.getElementById("abas-interacoes")?.scrollIntoView({ behavior: "smooth", block: "start" }))
-    }
   }
 
   return (
@@ -438,45 +436,50 @@ function VistaMedicamento({ resultado, onMais, onEvidence }: {
                 <BadgeEstado analise={dados.analise_bula} />
               </div>
               <p className="text-sm text-muted-foreground">
-                {totalInteracoes} {totalInteracoes === 1 ? "interação registrada" : "interações registradas"}
+                {dados.total_interacoes} {dados.total_interacoes === 1 ? "interação registrada nesta bula" : "interações registradas nesta bula"}
               </p>
             </div>
           </div>
           <p className="max-w-md text-xs leading-relaxed text-muted-foreground">{dados.mensagem}</p>
         </CardContent>
+        <CardContent className="space-y-4 border-t pt-5">
+          <h2 className="text-sm font-semibold">Interações na bula de {nome}</h2>
+          {dados.resumo_geral?.texto ? (
+            <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
+              {dados.resumo_geral.texto.split(/\n\s*\n/).map((paragrafo, indice) => <p key={indice}>{paragrafo}</p>)}
+              <p className="text-xs">Resumo das interações identificadas nesta bula. Confira os trechos originais em “Ver evidência”.</p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{dados.total_interacoes > 0
+              ? "O resumo desta bula ainda não está disponível. Você pode consultar as interações e os trechos originais nos detalhes."
+              : dados.analise_bula.mensagem}</p>
+          )}
+          {dados.total_interacoes > 0 && <Button variant="outline" aria-expanded={detalhesVisiveis}
+            aria-controls="detalhes-interacoes" onClick={() => setDetalhesVisiveis(!detalhesVisiveis)}>
+            {detalhesVisiveis ? "Ocultar detalhes" : "Ver detalhes"}
+          </Button>}
+        </CardContent>
       </Card>
 
-      {relacoes.length === 0 ? (
-        <Vazio titulo={`Nenhuma interação registrada para ${nome}`} texto={dados.analise_bula.mensagem} />
-      ) : (
-        <>
-          <Tabs id="abas-interacoes" value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="mb-3.5 mt-5 scroll-mt-20">
-            <TabsList>
-              <TabsTrigger value="nesta">Nesta bula <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">{totaisPorSentido.nesta_bula}</span></TabsTrigger>
-              <TabsTrigger value="outras">Em outras bulas <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">{totaisPorSentido.em_outras_bulas}</span></TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <p className="mb-3 text-xs text-muted-foreground">
-            {tab === "nesta"
-              ? `Medicamentos citados no tópico de interações da bula de ${nome}.`
-              : `Bulas de outros medicamentos que citam ${nome} (ou o seu princípio ativo) no tópico de interações.`}
-          </p>
-
+      {detalhesVisiveis && (
+        <div id="detalhes-interacoes" className="mt-5">
+          <p className="mb-3 text-xs text-muted-foreground">Interações identificadas no tópico de interações da bula de {nome}.</p>
           <div className="space-y-2.5">
-            {tab === "nesta" && gruposProprios.length === 0 && (
-              <Vazio titulo="Nenhuma interação com outro medicamento foi identificada nesta bula" texto="Veja a aba “Em outras bulas” para consultar citações encontradas em outras fontes." />
-            )}
-            {tab === "nesta" && gruposProprios.map((grupo) => {
+            {grupos.map((grupo) => {
               const r = grupo[0]
               const alvo = nomeLegivel(r.alvo)
               const relacionados = relacionadosDe(grupo)
               const citacoes = citacoesUnicas(grupo)
+              const resumos = [...new Map(grupo.map((item) => {
+                const texto = item.resumo_card || item.resumo
+                return [chaveCitacao(texto), texto]
+              })).values()]
               return (
                 <CartaoInteracao
                   key={r.id}
                   titulo={<>{nome} <span className="font-normal text-muted-foreground">×</span> {alvo}</>}
                   subtitulo={`Citado na bula de ${nome}`}
-                  resumo={r.resumo}
+                  resumo={resumos.join(" ")}
                   extra={citacoes.length > 1 ? `${citacoes.length} trechos da bula` : undefined}
                   relacionados={relacionados}
                   onEvidence={() => onEvidence({
@@ -488,45 +491,18 @@ function VistaMedicamento({ resultado, onMais, onEvidence }: {
                 />
               )
             })}
-            {tab === "outras" && gruposOutros.length === 0 && (
-              <Vazio titulo="Nenhuma outra bula carregada cita este medicamento" texto={faltam > 0 ? "Carregue mais resultados abaixo." : "Nenhuma bula analisada cita este medicamento pelo nome."} />
-            )}
-            {tab === "outras" && gruposOutros.map((grupo) => {
-              const r = grupo[0]
-              const origem = nomeLegivel(r.fonte.medicamento.nome_exibicao)
-              const alvos = [...new Set(grupo.map((g) => g.alvo))]
-              const citacoes = citacoesUnicas(grupo)
-              // O pesquisado pode ser composto: diz qual componente a outra bula cita.
-              const ligacao = montarLigacao(r.fonte.medicamento, dados.medicamento, grupo)
-              return (
-                <CartaoInteracao
-                  key={r.id}
-                  titulo={<>{nome} <span className="font-normal text-muted-foreground">×</span> {origem}</>}
-                  subtitulo={<span className="flex flex-col items-start"><ExplicacaoLigacao ligacao={ligacao} /><AvisoNaoCitados ligacao={ligacao} /></span>}
-                  resumo={r.resumo}
-                  extra={citacoes.length > 1 ? `${citacoes.length} trechos da bula` : undefined}
-                  onEvidence={() => onEvidence({
-                    titulo: `${origem} × ${nome}`,
-                    descricao: `Trecho do tópico de interações da bula de ${origem} que cita ${lista(alvos.map(substancia))}.`,
-                    trechos: citacoes.map((g) => ({ alvo: g.alvo, destacar: [g.alvo], evidencia: g.evidencia })),
-                    fonte: r.fonte, processamento: r.processamento, ligacoes: [ligacao],
-                  })}
-                />
-              )
-            })}
           </div>
-
           {faltam > 0 && (
             <div className="mt-5 flex flex-col items-center gap-2">
-              <Button variant="outline" onClick={() => void carregarMaisVisivel()} disabled={resultado.carregandoMais}>
+              <Button variant="outline" onClick={() => void carregarMais()} disabled={resultado.carregandoMais}>
                 {resultado.carregandoMais ? <Loader2 className="size-4 animate-spin" /> : null}
-                {tab === "nesta" ? "Carregar mais (pode aparecer em outras bulas)" : "Carregar mais"} ({relacoes.length} de {dados.paginacao.total})
+                Carregar mais ({relacoes.length} de {dados.paginacao.total} trechos)
               </Button>
-              {carregadasAgora > 0 && <p role="status" className="text-xs text-muted-foreground">{carregadasAgora} novos registros carregados{tab === "outras" ? " em outras bulas" : ""}.</p>}
+              {carregadasAgora > 0 && <p role="status" className="text-xs text-muted-foreground">{carregadasAgora} novos registros carregados.</p>}
               {resultado.erroMais && <p className="text-xs text-destructive">{resultado.erroMais}</p>}
             </div>
           )}
-        </>
+        </div>
       )}
     </section>
   )
@@ -556,7 +532,10 @@ function VistaPar({ dados, onEvidence }: { dados: RespostaPar; onEvidence: (deta
 
   const cartao = (trechos: EvidenciaPar[]) => {
     const origens = [...new Set(trechos.map((ev) => nomeLegivel(ev.fonte.medicamento.nome_exibicao)))]
-    const resumos = [...new Map(trechos.flatMap((ev) => ev.itens).map((item) => [chaveCitacao(item.resumo), item.resumo])).values()]
+    const resumos = [...new Map(trechos.flatMap((ev) => ev.itens).map((item) => {
+      const texto = item.resumo_card || item.resumo
+      return [chaveCitacao(texto), texto]
+    })).values()]
     const ligacoes = ligacoesDoPar(dados, trechos)
     const origemTexto = `${origens.length === 1 ? "Citado na bula de" : "Citado nas bulas de"} ${origens.join(" e ")}`
     return (
@@ -709,21 +688,10 @@ function VistaComparacao({ resultados, onEvidence }: {
   )
 }
 
-function Vazio({ titulo, texto }: { titulo: string; texto: string }) {
-  return (
-    <div className="mt-7 rounded-xl border border-dashed px-6 py-10 text-center">
-      <div className="mx-auto mb-3.5 flex size-11 items-center justify-center rounded-lg bg-muted"><SearchX className="size-5 text-muted-foreground" /></div>
-      <p className="font-semibold">{titulo}</p>
-      <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">{texto}</p>
-    </div>
-  )
-}
-
 /* ---------- Página ---------- */
 type Estado =
   | { tipo: "inicio" }
   | { tipo: "carregando"; concluido?: number; total?: number }
-  | { tipo: "nao_encontrado"; termo: string }
   | { tipo: "erro"; mensagem: string; semConexao: boolean }
   | ({ tipo: "medicamento" } & ResultadoMedicamento)
   | { tipo: "comparacao"; resultados: ResultadoPar[] }
@@ -745,7 +713,12 @@ export default function InteraMed() {
   const adicionarComparado = async (escolhido?: Medicamento) => {
     try {
       const medicamento = escolhido ?? await resolver(textoComparacao, null, new AbortController().signal)
-      if (!medicamento) { setErroComparacao("Escolha um medicamento da lista de sugestões."); return }
+      if (!medicamento) {
+        if (textoComparacao.trim()) {
+          setErroComparacao(MEDICAMENTO_AUSENTE)
+        }
+        return
+      }
       if (medicamento.nome_normalizado === selecionado?.nome_normalizado || comparados.some((m) => m.nome_normalizado === medicamento.nome_normalizado)) {
         setErroComparacao("Este medicamento já está selecionado para a consulta de interações.")
         return
@@ -758,37 +731,51 @@ export default function InteraMed() {
     }
   }
 
-  // Texto digitado sem escolher sugestão: usa a primeira sugestão da API.
+  // A sugestão aproximada exige escolha explícita; nunca consulta outro medicamento automaticamente.
   const resolver = async (valor: string, escolhido: Medicamento | null, sinal: AbortSignal) => {
     if (escolhido) return escolhido
     if (!valor.trim()) return null
-    const resposta = await api.sugestoes(valor.trim(), 1, sinal)
-    return resposta.sugestoes[0] ?? null
+    const resposta = await api.sugestoes(valor.trim(), LIMITE_SUGESTOES, sinal)
+    const normal = (v: string) => fold(v).replace(/\s+/g, ' ').trim()
+    return resposta.sugestoes.find((m) => normal(m.nome_normalizado) === normal(valor)
+      || normal(m.nome_exibicao) === normal(valor)) ?? null
   }
 
-  const buscar = async (escolhidos: { a?: Medicamento } = {}) => {
-    if (!escolhidos.a && !selecionado && !texto.trim()) return
+  const buscar = async (escolhidos: { a?: Medicamento; medicamentos?: Medicamento[]; comparar?: boolean } = {}) => {
+    if (!escolhidos.a && !escolhidos.medicamentos?.length && !selecionado && !texto.trim()) return
     controle.current?.abort()
     controleMais.current?.abort()
     const atual = new AbortController()
     controle.current = atual
     setEstado({ tipo: "carregando" })
     try {
-      const a = escolhidos.a ?? await resolver(texto, selecionado, atual.signal)
-      if (!a) { setEstado({ tipo: "nao_encontrado", termo: texto.trim() }); return }
+      const a = escolhidos.medicamentos?.[0] ?? escolhidos.a ?? await resolver(texto, selecionado, atual.signal)
+      if (!a) {
+        setEstado({ tipo: 'erro', mensagem: MEDICAMENTO_AUSENTE, semConexao: false })
+        return
+      }
       escolherA(a)
-      if (compareOn && (comparados.length > 0 || textoComparacao.trim())) {
+      const comparar = escolhidos.comparar ?? (compareOn && (comparados.length > 0 || !!textoComparacao.trim()))
+      let medicamentos = escolhidos.medicamentos ?? [a]
+      if (comparar && !escolhidos.medicamentos) {
         const pendente = await resolver(textoComparacao, null, atual.signal)
-        if (textoComparacao.trim() && !pendente) { setEstado({ tipo: "nao_encontrado", termo: textoComparacao.trim() }); return }
-        const medicamentos = [a, ...comparados, ...(pendente ? [pendente] : [])]
+        if (textoComparacao.trim() && !pendente) {
+          setErroComparacao(MEDICAMENTO_AUSENTE)
+          setEstado({ tipo: 'erro', mensagem: MEDICAMENTO_AUSENTE, semConexao: false })
+          return
+        }
+        medicamentos = [a, ...comparados, ...(pendente ? [pendente] : [])]
+        if (pendente) { setComparados((itens) => [...itens, pendente]); setTextoComparacao('') }
+      }
+      if (new Set(medicamentos.map((m) => m.nome_normalizado)).size !== medicamentos.length) {
+        setEstado({ tipo: 'erro', mensagem: 'Cada medicamento deve aparecer apenas uma vez na consulta de interações.', semConexao: false })
+        return
+      }
+      if (comparar) {
         const pares = paresDeMedicamentos(medicamentos)
         if (new Set(medicamentos.map((m) => m.nome_normalizado)).size !== medicamentos.length) {
           setEstado({ tipo: "erro", mensagem: "Cada medicamento deve aparecer apenas uma vez na consulta de interações.", semConexao: false })
           return
-        }
-        if (pendente) {
-          setComparados((atual) => [...atual, pendente])
-          setTextoComparacao("")
         }
         const resultados: ResultadoPar[] = new Array(pares.length)
         let proximo = 0
@@ -817,8 +804,7 @@ export default function InteraMed() {
       }
     } catch (e) {
       if (ehCancelamento(e) || atual.signal.aborted) return
-      if (e instanceof ErroApi && e.status === 404) setEstado({ tipo: "nao_encontrado", termo: texto.trim() })
-      else setEstado({
+      setEstado({
         tipo: "erro",
         mensagem: e instanceof ErroApi ? e.message : "Erro inesperado ao consultar a API.",
         semConexao: e instanceof ErroApi && e.status === 0,
@@ -851,7 +837,7 @@ export default function InteraMed() {
   return (
     <div className="interamed-app min-h-screen bg-background text-foreground antialiased">
       <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
-        <div className="interamed-container mx-auto flex max-w-4xl items-center justify-between px-6 py-3.5">
+        <div className="interamed-container mx-auto flex w-full max-w-[1456px] items-center justify-between px-6 py-3.5">
           <div className="flex items-center gap-2.5">
             <div className="flex size-8 items-center justify-center rounded-lg bg-blue-600"><Pill className="size-4 text-white" /></div>
             <span className="text-[17px] font-semibold tracking-tight">InteraMed</span>
@@ -862,16 +848,16 @@ export default function InteraMed() {
       <section className="relative overflow-hidden border-b">
         <DottedSurface size={3} opacity={0.48} sizeAttenuation={false} className="z-0 [mask-image:linear-gradient(to_bottom,#000_20%,transparent_100%)]" />
         <div className="absolute inset-0 z-1 bg-gradient-to-b from-background/0 via-background/10 to-background/65" />
-        <div className="interamed-container relative z-10 mx-auto max-w-4xl px-6 pb-28 pt-16 text-center">
+        <div className="interamed-container relative z-10 mx-auto w-full max-w-[1456px] px-6 pb-28 pt-16 text-center">
           <Badge variant="outline" className="mb-5 gap-2 rounded-full border-blue-200 bg-blue-50 px-3 py-1 text-blue-700"><ShieldCheck className="size-3.5" />Verificador de interações medicamentosas</Badge>
           <h1 className="mx-auto max-w-2xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
             Verifique interações com <span className="bg-gradient-to-r from-blue-600 to-sky-500 bg-clip-text text-transparent">segurança</span>
           </h1>
-          <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground">Digite um medicamento e veja quais outros são citados no tópico de interações da bula, com o trecho que comprova cada um.</p>
+          <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground">Pesquise um medicamento ou selecione vários para verificar as interações entre eles.</p>
         </div>
       </section>
 
-      <main className="interamed-container relative mx-auto -mt-20 max-w-4xl px-6 pb-16">
+      <main className="interamed-container relative mx-auto -mt-20 w-full max-w-[1456px] px-6 pb-16">
         {/* overflow-visible: a lista de sugestões passa da borda do card sem ser cortada. */}
         <Card className="relative z-20 overflow-visible! shadow-xl shadow-zinc-900/5">
           <CardContent className="space-y-4 pt-6">
@@ -884,6 +870,7 @@ export default function InteraMed() {
                 id="med" value={texto} selected={selecionado} placeholder="Digite o medicamento (ex.: Marevan)"
                 onChange={(v) => { setTexto(v); setSelecionado(null) }}
                 onSelect={escolherA} onSubmit={(m) => { if (!compareOn) void buscar({ a: m }) }}
+                orientacaoAusente={MEDICAMENTO_AUSENTE}
               />
               <Button className="h-11 bg-blue-600 px-5 hover:bg-blue-700" onClick={() => void buscar()} disabled={estado.tipo === "carregando"}>
                 {estado.tipo === "carregando" ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}Consultar interações
@@ -910,6 +897,7 @@ export default function InteraMed() {
                     id="cmp" value={textoComparacao} selected={null} placeholder="Adicione outro medicamento para verificar interações"
                     onChange={(v) => { setTextoComparacao(v); setErroComparacao(null) }}
                     onSelect={() => {}} onSubmit={(m) => void adicionarComparado(m)}
+                    orientacaoAusente={MEDICAMENTO_AUSENTE}
                   />
                   <Button variant="outline" className="h-11" onClick={() => void adicionarComparado()} disabled={!textoComparacao.trim()}>Adicionar</Button>
                 </div>
@@ -926,6 +914,7 @@ export default function InteraMed() {
           </CardFooter>
         </Card>
 
+
         {estado.tipo === "carregando" && (
           <div className="mt-7 space-y-3">
             <p role="status" className="text-sm text-muted-foreground">{estado.total !== undefined ? `Consultando interações: ${estado.concluido} de ${estado.total} pares` : "Consultando interações…"}</p>
@@ -936,28 +925,28 @@ export default function InteraMed() {
         {estado.tipo === "inicio" && (
           <section className="mt-10">
             <p className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Como funciona</p>
-            <ol className="grid gap-x-5 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
+            <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {([
-                ["Selecione o medicamento", "Digite o nome comercial ou o princípio ativo e escolha uma das sugestões. Ative “Verificar interações entre medicamentos” para consultar as interações entre vários medicamentos."],
-                ["Consultamos as bulas", "O InteraMed lê o tópico de interações das bulas profissionais publicadas pela Anvisa no Bulário Eletrônico."],
-                ["Cruzamos os dados", "Mostramos os medicamentos citados na bula do que você buscou e as bulas de outros medicamentos que citam o mesmo princípio ativo."],
-                ["Confira a evidência", "Cada interação traz o trecho exato da bula, a data de publicação e um link para consultar a bula completa no Bulário."],
-              ] as const).map(([titulo, desc], i) => (
-                <li key={titulo}>
-                  <div className="h-1.5 rounded-full bg-blue-500/80" />
-                  <p className="mt-3.5 flex items-center gap-2 text-sm font-semibold">
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-semibold text-white">{i + 1}</span>
-                    {titulo}
-                  </p>
+                [Pill, "Escolha um medicamento", "Busque pelo nome comercial ou princípio ativo e selecione uma sugestão."],
+                [ArrowLeftRight, "Escolha a consulta", "Consulte um medicamento ou adicione outros para verificar as interações entre eles."],
+                [Sparkles, "Veja os resultados", "Confira quais medicamentos foram relacionados e em qual bula a interação foi encontrada."],
+                [BookOpen, "Leia a evidência", "Abra o trecho da bula e acesse o documento completo no Bulário Eletrônico."],
+              ] as const).map(([Icone, titulo, desc], i) => (
+                <li key={titulo} className="rounded-xl border border-border/70 bg-card/80 p-4 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50/30">
+                  <div className="flex items-center justify-between">
+                    <span className="flex size-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><Icone className="size-4" /></span>
+                    <span className="text-xs font-semibold text-blue-600/80">0{i + 1}</span>
+                  </div>
+                  <p className="mt-3 text-sm font-semibold">{titulo}</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{desc}</p>
                 </li>
               ))}
             </ol>
+            <div className="mt-4 flex items-center gap-3 rounded-xl border border-dashed border-blue-200 bg-blue-50/40 px-4 py-3 text-xs text-muted-foreground">
+              <ArrowRight className="size-4 shrink-0 text-blue-600" />
+              <span><strong className="font-semibold text-foreground">Exemplo:</strong> Ibuprofeno + outro medicamento → interação encontrada → trecho da bula para conferência.</span>
+            </div>
           </section>
-        )}
-
-        {estado.tipo === "nao_encontrado" && (
-          <Vazio titulo={`Nenhum medicamento encontrado para “${estado.termo}”`} texto="Confira a grafia ou escolha uma das sugestões. Só aparecem medicamentos com bula disponível." />
         )}
 
         {estado.tipo === "erro" && (
@@ -968,7 +957,7 @@ export default function InteraMed() {
             <p className="font-semibold">{estado.semConexao ? "API indisponível" : "Não foi possível concluir a consulta"}</p>
             <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">{estado.mensagem}</p>
             {estado.semConexao && (
-              <p className="mx-auto mt-3 max-w-lg font-mono text-xs text-muted-foreground">api_interacoes\.venv\Scripts\python -m api_interacoes</p>
+              <p className="mx-auto mt-3 max-w-lg font-mono text-xs text-muted-foreground">apps\api_interacoes\.venv\Scripts\python -m apps.api_interacoes</p>
             )}
           </div>
         )}

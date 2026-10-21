@@ -1,15 +1,18 @@
 # API de consulta das interações
 
-API HTTP somente leitura, em FastAPI com Pydantic, sobre as tabelas gravadas
-por [`identificacao_interacoes`](../identificacao_interacoes/README.md).
+API HTTP em FastAPI com Pydantic, com consultas somente de leitura sobre as tabelas gravadas
+por [`identificacao_interacoes`](../../pipelines/identificacao_interacoes/README.md).
+
+A API consulta somente dados persistidos. Nomes ausentes retornam HTTP 404;
+nenhum endpoint dispara scraping, geração de resumos ou escrita no banco.
 
 - Não carrega modelos, não abre Selenium, não executa inferência nem
   migrações. Um teste confere que iniciar a API não importa `llama_cpp`,
   `torch`, `transformers`, PyMuPDF, Selenium nem os módulos de extração.
 - Conexões com `default_transaction_read_only=on` e `statement_timeout`; SQL
   sempre parametrizado; erros sem credenciais, caminhos ou detalhes internos.
-- O esquema vem das migrações de `identificacao_interacoes/migracoes/` (001 a
-  003, aditivas; a 003 aceita o critério `PRINCIPIO_ATIVO_SEM_SAL`). Se as tabelas ou views não existirem, `/api/saude`
+- O esquema vem das migrações de `pipelines/identificacao_interacoes/migracoes/` (001 a
+  005, aditivas; 004/005 acrescentam os campos e o controle dos resumos). Se as tabelas ou views de consulta não existirem, `/api/saude`
   informa `esquema: ausente` e as consultas respondem 503 — a API não cria
   nada. Aplique com `python -m pipelines.identificacao_interacoes.aplicar_migracoes`.
 
@@ -26,20 +29,21 @@ app.py           FastAPI, CORS, tratamento de erros
 
 ```cmd
 cd C:\Users\Desenvolvimento\Desktop\TCC\TCCII
-py -3.13 -m venv api_interacoes\.venv
-api_interacoes\.venv\Scripts\python -m pip install -r api_interacoes\requirements.txt
-copy api_interacoes\.env.example api_interacoes\.env
+py -3.13 -m venv apps\api_interacoes\.venv
+apps\api_interacoes\.venv\Scripts\python -m pip install -r apps\api_interacoes\requirements.txt
+copy apps\api_interacoes\.env.example apps\api_interacoes\.env
 ```
 
-Edite `api_interacoes\.env` (`DATABASE_URL`, `API_CORS_ORIGINS`). A partir da
+Edite `apps\api_interacoes\.env` (`DATABASE_URL`, `API_CORS_ORIGINS`). A partir da
 raiz do projeto:
 
 ```cmd
-api_interacoes\.venv\Scripts\python -m apps.api_interacoes
+apps\api_interacoes\.venv\Scripts\python -m apps.api_interacoes
 ```
 
 Documentação interativa: `http://127.0.0.1:8000/docs` (OpenAPI em
 `/openapi.json`).
+
 
 ## Endpoints
 
@@ -49,6 +53,7 @@ Documentação interativa: `http://127.0.0.1:8000/docs` (OpenAPI em
 | `GET /api/medicamentos/sugestoes?q=&limite=` | autocomplete sem LLM |
 | `GET /api/interacoes?medicamento=&pagina=&tamanho_pagina=` | interações de um medicamento |
 | `GET /api/interacoes/par?medicamento_a=&medicamento_b=` | relações entre dois medicamentos |
+
 
 ### Autocomplete
 
@@ -64,13 +69,15 @@ Documentação interativa: `http://127.0.0.1:8000/docs` (OpenAPI em
 
 - `medicamento` precisa ser um `nome_normalizado` exato (o autocomplete o
   fornece); texto não normalizado responde 422 e inexistente, 404.
-- Inclui as relações descritas na bula do medicamento
-  (`DESCRITA_NA_BULA_PESQUISADA`) e as de outras bulas **vinculadas
-  explicitamente** a ele (`DESCRITA_EM_OUTRA_BULA`), inclusive classes,
-  alimentos e alvos sem medicamento associado (a tabela de ligação entra por
-  `LEFT JOIN`/`EXISTS`, nunca por `INNER JOIN` obrigatório).
-- Paginação (`pagina` ≥ 1, `tamanho_pagina` 1–100) com ordem estável: bula
-  pesquisada primeiro, depois outras origens, por `id`.
+- Inclui somente relações da própria bula (`DESCRITA_NA_BULA_PESQUISADA`),
+  inclusive classes, alimentos e alvos sem medicamento associado.
+- `resumo_geral` traz status, texto, data de geração e identificação de origem.
+  Sem geração concluída, o status é `PENDENTE` e o texto é nulo.
+- `total_interacoes` conta alvos agrupados; não há mais `totais_por_sentido`.
+- Paginação (`pagina` ≥ 1, `tamanho_pagina` 1–100) por `id`, após o filtro de
+  citações não positivas. O total da paginação conta registros de evidência.
+- `resumo_card` é o resumo de apresentação, nulo enquanto não existir geração
+  concluída. `resumo` permanece como fallback; `evidencia` permanece literal.
 - Cada relação traz `resumo`, `evidencia` literal, `gravidade: "desconhecida"`,
   a `fonte` (registro, expediente, `sha256_pdf`, `data_publicacao_bula`) e o
   `processamento` (`data_processamento`, versão, modelo), além de até
@@ -85,6 +92,7 @@ Documentação interativa: `http://127.0.0.1:8000/docs` (OpenAPI em
 ### Relações entre dois medicamentos
 
 - Considera os dois sentidos (`BULA_A_CITA_B`, `BULA_B_CITA_A`).
+- Os itens incluem `resumo_card` quando disponível. Não retorna resumo geral.
 - Itens com a mesma origem, sentido e evidência ficam num único grupo; efeitos
   e evidências diferentes nunca são descartados.
 - `alertas_nao_confirmados`: alertas sobre **classes** das duas bulas. Não
@@ -202,11 +210,11 @@ GET /api/interacoes?medicamento=nao%20existe   → 404 {"erro": "medicamento_nao
 
 ## Integração futura com o frontend
 
-O frontend (`frontend/`, Next.js com `output: "export"`) é estático: o
+O frontend (`apps/frontend/`, Next.js com `output: "export"`) é estático: o
 navegador chamará a API diretamente, por isso a origem dele precisa estar em
 `API_CORS_ORIGINS` (`http://localhost:3000` no desenvolvimento). Nenhum
 arquivo do frontend foi alterado nesta etapa. Mapeamento sugerido para os tipos
-de `frontend/lib/interacoes-data.ts`:
+de `apps/frontend/lib/interacoes-data.ts`:
 
 | Frontend | API |
 | --- | --- |
@@ -244,7 +252,7 @@ do Bulário (com expiração), não um identificador permanente do PDF.
 
 ```cmd
 cd C:\Users\Desenvolvimento\Desktop\TCC\TCCII
-api_interacoes\.venv\Scripts\python -m unittest discover -s api_interacoes\tests -t . -v
+apps\api_interacoes\.venv\Scripts\python -m unittest discover -s apps\api_interacoes\tests -t . -v
 ```
 
 `test_api.py` usa um repositório simulado (contratos, estados, validação,

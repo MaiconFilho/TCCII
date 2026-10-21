@@ -9,7 +9,7 @@ mais recente** no Bulário Eletrônico da Anvisa.
 
 A tabela `bulas` já nasce com `principios_ativos` e `composicao` (ambos `TEXT`).
 O scraper coleta o PDF; esses dois campos são preenchidos depois por
-`extracao_interacoes/main.py`, na mesma execução que extrai as interações.
+`pipelines/extracao_interacoes/main.py`, na mesma execução que extrai as interações.
 Não há nova chamada à Anvisa nem carregamento de LLM durante o scraping.
 
 Para cada nome único da planilha, a aplicação:

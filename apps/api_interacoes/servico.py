@@ -16,8 +16,8 @@ import time
 from collections import OrderedDict
 
 from pipelines.scraping_anvisa.anvisa_scraper.normalizacao import normalizar_nome
-from pipelines.identificacao_interacoes.normalizacao import mapear_texto, normalizar_alvo
-from pipelines.identificacao_interacoes.validacao import AUSENCIA, RECOMENDACAO_FORTE, oracoes_do_alvo
+from pipelines.identificacao_interacoes.normalizacao import normalizar_alvo
+from pipelines.identificacao_interacoes.validacao import relacao_nao_positiva
 from .configuracao import ConfiguracaoApi
 from .contratos import (
     AnaliseBula,
@@ -37,7 +37,7 @@ from .contratos import (
     Sentido,
     SentidoPar,
     Sugestao,
-    TotaisPorSentido,
+    ResumoGeral,
 )
 from .erros import MedicamentoNaoEncontradoError, ParametroInvalidoError
 
@@ -45,16 +45,6 @@ from .erros import MedicamentoNaoEncontradoError, ParametroInvalidoError
 def chave_citacao(texto: str) -> str:
     """Mesmo trecho com quebras/espaços ou caixa diferentes no PDF."""
     return re.sub(r"\s+", "", texto).casefold()
-
-
-def relacao_nao_positiva(linha: dict) -> bool:
-    """Descarta citações que apenas declaram ausência de estudo/efeito/interação."""
-    evidencia = mapear_texto(linha.get("evidencia") or "", unir_hifenizacao=True).texto
-    alvo = normalizar_alvo(linha.get("alvo") or "")
-    oracoes = oracoes_do_alvo(evidencia, alvo)
-    return any(AUSENCIA.search(oracao) for oracao in oracoes) and not any(
-        RECOMENDACAO_FORTE.search(oracao) for oracao in oracoes
-    )
 
 
 MENSAGEM_POSITIVA = "Interação identificada nas fontes analisadas."
@@ -267,37 +257,36 @@ class ServicoConsulta:
         validar_identificador(nome, "medicamento")
         medicamento, analise, _situacao = self._analises([nome])[nome]
         deslocamento = (pagina - 1) * tamanho_pagina
-        linhas, _total_bruto = self.repositorio.relacoes_do_medicamento(nome, tamanho_pagina, deslocamento)
         linhas_contagem = self.repositorio.relacoes_para_contagem(nome)
-        validas_contagem = [linha for linha in linhas_contagem if not relacao_nao_positiva(linha)]
+        validas_contagem = [linha for linha in linhas_contagem
+                           if linha["medicamento_origem"] == nome and not relacao_nao_positiva(linha)]
+        # Filtra antes de paginar, para não criar páginas vazias ou contagens divergentes.
+        ids = [linha["id"] for linha in validas_contagem[deslocamento:deslocamento + tamanho_pagina]]
+        linhas = self.repositorio.relacoes_por_ids(nome, ids)
         total_nesta = len({
             normalizar_alvo(linha["alvo"])
             for linha in validas_contagem
             if linha["grupo"] == 0
         })
-        total_outras = len({
-            linha["medicamento_origem"]
-            for linha in validas_contagem
-            if linha["grupo"] == 1
-        })
-        total_interacoes = total_nesta + total_outras
+        total_interacoes = total_nesta
         total_registros = len(validas_contagem)
         relacionados = self.repositorio.relacionados(
             [linha["id"] for linha in linhas], self.configuracao.limite_relacionados
         )
         relacoes = []
         for linha in linhas:
-            if relacao_nao_positiva(linha):
+            if linha["medicamento_origem"] != nome or relacao_nao_positiva(linha):
                 continue
             origem = Medicamento(nome_normalizado=linha["medicamento_origem"], nome_exibicao=linha["origem_exibicao"])
             lista, quantidade = relacionados.get(linha["id"], ([], 0))
             relacoes.append(
                 Relacao(
                     id=linha["id"],
-                    sentido=Sentido.DESCRITA_NA_BULA_PESQUISADA if linha["grupo"] == 0 else Sentido.DESCRITA_EM_OUTRA_BULA,
+                    sentido=Sentido.DESCRITA_NA_BULA_PESQUISADA,
                     alvo=linha["alvo"],
                     tipo_alvo=linha["tipo_alvo"],
                     resumo=linha["resumo"],
+                    resumo_card=linha.get("resumo_card"),
                     evidencia=linha["evidencia"],
                     fonte=_fonte(linha, origem),
                     processamento=_processamento(linha),
@@ -328,10 +317,9 @@ class ServicoConsulta:
             mensagem=mensagem,
             cobertura=cobertura,
             relacoes=relacoes,
-            totais_por_sentido=TotaisPorSentido(
-                nesta_bula=total_nesta,
-                em_outras_bulas=total_outras,
-            ),
+            total_interacoes=total_interacoes,
+            resumo_geral=ResumoGeral(**(self.repositorio.resumo_geral(
+                _situacao.get("processamento_id")) or {})),
             paginacao=Paginacao(
                 pagina=pagina,
                 tamanho_pagina=tamanho_pagina,
@@ -387,6 +375,7 @@ class ServicoConsulta:
                     alvo=linha["alvo"],
                     tipo_alvo=linha["tipo_alvo"],
                     resumo=linha["resumo"],
+                    resumo_card=linha.get("resumo_card"),
                     criterio_vinculo=linha.get("criterio_vinculo"),
                     fundamento_vinculo=(
                         linha.get("fundamento_vinculo") if linha.get("criterio_vinculo") is not None else None

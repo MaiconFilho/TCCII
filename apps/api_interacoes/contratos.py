@@ -110,6 +110,7 @@ class Relacao(BaseModel):
     alvo: str
     tipo_alvo: TipoAlvo
     resumo: str
+    resumo_card: str | None = None
     evidencia: str = Field(description="Trecho literal de bulas_interacoes.trecho_interacoes.")
     gravidade: Literal["desconhecida"] = Field(
         default="desconhecida", description="Não há classificação fundamentada de gravidade."
@@ -146,9 +147,11 @@ class Paginacao(BaseModel):
     total_paginas: int
 
 
-class TotaisPorSentido(BaseModel):
-    nesta_bula: int
-    em_outras_bulas: int
+class ResumoGeral(BaseModel):
+    status: Literal["CONCLUIDO", "PENDENTE"] = "PENDENTE"
+    texto: str | None = None
+    gerado_em: datetime | None = None
+    processamento_id: int | None = None
 
 
 class RespostaInteracoes(BaseModel):
@@ -163,7 +166,8 @@ class RespostaInteracoes(BaseModel):
     mensagem: str
     cobertura: Cobertura
     relacoes: list[Relacao]
-    totais_por_sentido: TotaisPorSentido
+    total_interacoes: int
+    resumo_geral: ResumoGeral
     paginacao: Paginacao
 
 
@@ -172,6 +176,7 @@ class ItemPar(BaseModel):
     alvo: str
     tipo_alvo: TipoAlvo
     resumo: str
+    resumo_card: str | None = None
     criterio_vinculo: CriterioVinculo | None = None
     fundamento_vinculo: str | None = Field(
         default=None,

@@ -23,7 +23,7 @@ bulas_interacoes (CONCLUIDO, com texto)
 **Não faz parte desta etapa:** scraping, leitura de PDF, OCR, localização da
 seção, geração de embeddings, busca semântica, classificação de gravidade e
 classificação dos medicamentos em classes. Os textos extraídos não são
-alterados. A consulta HTTP fica em [`api_interacoes`](../api_interacoes/README.md).
+alterados. A consulta HTTP fica em [`api_interacoes`](../../apps/api_interacoes/README.md).
 
 ## Estratégia padrão: nomes do banco (`dicionario`)
 
@@ -134,11 +134,11 @@ Esta seção e as duas seguintes (tipos de alvo, validação) e a de janelas
 valem para as estratégias com LLM (`atual`, `duas_etapas`); a estratégia
 padrão não carrega modelo.
 
-O provedor é o mesmo da extração (`extracao_interacoes.modelo_llm.LlamaCppProvider`,
+O provedor é o mesmo da extração (`pipelines.extracao_interacoes.modelo_llm.LlamaCppProvider`,
 uma instância, CPU, semáforo de concorrência 1), importado só pela CLI e com
 limites próprios: contexto de 8.192 tokens e **até 3.072 tokens de saída**
 (a extração usa 256 para localizar seções). O GGUF já baixado em
-`extracao_interacoes/modelos_hf` é reaproveitado.
+`pipelines/extracao_interacoes/modelos_hf` é reaproveitado.
 
 Localizar uma seção não prova que o modelo interpreta relações, então ele foi
 avaliado nesta tarefa:
@@ -278,7 +278,7 @@ que o resumo é fiel.
 ## Correspondência com medicamentos
 
 Comparação por igualdade após a mesma normalização que gerou
-`bulas.nome_normalizado` (`scraping_anvisa/anvisa_scraper/normalizacao.py`:
+`bulas.nome_normalizado` (`pipelines/scraping_anvisa/anvisa_scraper/normalizacao.py`:
 caixa, acentos e espaços). Nunca por substring.
 
 - `PRINCIPIO_ATIVO`: cada entrada de `bulas.principios_ativos` separada por
@@ -394,13 +394,13 @@ O ambiente da extração já tem todas as dependências:
 
 ```cmd
 cd C:\Users\Desenvolvimento\Desktop\TCC\TCCII
-extracao_interacoes\.venv\Scripts\activate
-copy identificacao_interacoes\.env.example identificacao_interacoes\.env
+pipelines\extracao_interacoes\.venv\Scripts\activate
+copy pipelines\identificacao_interacoes\.env.example pipelines\identificacao_interacoes\.env
 ```
 
-Edite `identificacao_interacoes\.env` com a sua `DATABASE_URL`. Em outro
+Edite `pipelines\identificacao_interacoes\.env` com a sua `DATABASE_URL`. Em outro
 computador, crie um ambiente e instale
-`identificacao_interacoes\requirements.txt`.
+`pipelines\identificacao_interacoes\requirements.txt`.
 
 **Todos os comandos rodam a partir da raiz do projeto**, como módulos
 (`python -m ...`), sem alterar `sys.path`.
@@ -475,7 +475,7 @@ amostragem com gramática; não é velocidade de geração.
 | --- | --- | --- |
 | `DATABASE_URL` | — | Banco `TCC`. |
 | `IDENTIFICACAO_HF_MODEL_REPO` / `_FILE` | Qwen2.5-1.5B Q4_K_M | GGUF usado. |
-| `IDENTIFICACAO_MODELOS_DIR` | `extracao_interacoes/modelos_hf` | Cache do GGUF. |
+| `IDENTIFICACAO_MODELOS_DIR` | `pipelines/extracao_interacoes/modelos_hf` | Cache do GGUF. |
 | `IDENTIFICACAO_LLM_CONTEXT_SIZE` | `8192` | Contexto do llama.cpp. |
 | `IDENTIFICACAO_LLM_MAX_OUTPUT_TOKENS` | `3072` | Orçamento de saída por chamada. |
 | `IDENTIFICACAO_JANELA_TOKENS` / `_SOBREPOSICAO` | `1000` / `150` | Janelas. |
@@ -497,7 +497,7 @@ validação das evidências, os vínculos, a retomada e as migrações. Execute 
 partir da raiz do projeto:
 
 ```cmd
-python -m unittest discover -s identificacao_interacoes/tests -t . -v
+python -m unittest discover -s pipelines/identificacao_interacoes/tests -t . -v
 ```
 
 Os testes com PostgreSQL real só são habilitados quando

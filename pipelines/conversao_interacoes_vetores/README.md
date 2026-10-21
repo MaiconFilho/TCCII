@@ -131,7 +131,7 @@ gravado.
 ## Instalação
 
 ```cmd
-cd conversao_interacoes_vetores
+cd pipelines\conversao_interacoes_vetores
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -140,13 +140,13 @@ copy .env.example .env
 
 Edite o `.env` com a sua `DATABASE_URL`.
 
-**Atalho nesta máquina:** o ambiente de `extracao_interacoes/.venv` já tem
+**Atalho nesta máquina:** o ambiente de `pipelines/extracao_interacoes/.venv` já tem
 `torch`, `transformers`, `psycopg`, `psutil` e `python-dotenv` nas versões
 exigidas, então dá para reaproveitá-lo e evitar baixar o PyTorch de novo
 (cerca de 2,5 GB):
 
 ```cmd
-cd conversao_interacoes_vetores
+cd pipelines\conversao_interacoes_vetores
 ..\extracao_interacoes\.venv\Scripts\activate
 python main_embeddings.py --limite 1
 ```
@@ -154,7 +154,7 @@ python main_embeddings.py --limite 1
 ### Download inicial do modelo
 
 O download acontece **apenas na primeira execução**. Os pesos ficam no cache
-local `conversao_interacoes_vetores/modelos_hf/`, que está no `.gitignore`.
+local `pipelines/conversao_interacoes_vetores/modelos_hf/`, que está no `.gitignore`.
 Nenhum peso, cache ou arquivo de modelo é versionado. Execuções seguintes
 carregam do disco.
 
@@ -358,7 +358,7 @@ Consequências:
 
 ## Comandos
 
-Todos executados dentro de `conversao_interacoes_vetores/`.
+Todos executados dentro de `pipelines/conversao_interacoes_vetores/`.
 
 ```cmd
 python main_embeddings.py --limite 1
@@ -447,7 +447,7 @@ Status possíveis: `CONCLUIDO`, `IGNORADO_JA_EXISTENTE`, `REPROCESSADO`,
 
 ```text
 main_embeddings.py          CLI: .env, argumentos, log, relatório
-conversao_interacoes_vetores/
+pipelines/conversao_interacoes_vetores/
   provedor_embeddings.py    Protocol ProvedorEmbeddings (contrato injetável)
   modelo_embeddings.py      ProvedorEmbeddingsTransformers: carrega uma vez
   chunking.py               divisão por tokens, com sobreposição
@@ -471,7 +471,7 @@ instância do provedor viva no processo.
 ## Testes
 
 ```cmd
-cd conversao_interacoes_vetores
+cd pipelines\conversao_interacoes_vetores
 python -m unittest discover -s tests -v
 ```
 

@@ -41,6 +41,7 @@ from .modelos import (
     TipoAlvo,
 )
 from .normalizacao import mapear_texto, normalizar_alvo
+from .contexto_evidencia import blocos_estruturados, efeito_do_bloco
 from .resolucao import CatalogoMedicamentos, palavras_chave, substancias
 from .validacao import AUSENCIA, SEPARADOR_ORACOES, VERSAO_VALIDACAO, chaves_da_origem, e_a_origem
 
@@ -141,7 +142,10 @@ def carregar_ignorados(caminho: Path = ARQUIVO_IGNORADOS) -> frozenset[str]:
 def trechos(texto: str) -> list[tuple[int, int]]:
     """Faixas [início, fim) de frases e itens, sem os espaços das bordas."""
     faixas, inicio = [], 0
+    blocos = blocos_estruturados(texto)
     for separador in SEPARADOR_TRECHOS.finditer(texto):
+        if any(a < separador.start() < b for a, b in blocos):
+            continue
         faixas.append((inicio, separador.start()))
         inicio = separador.end()
     faixas.append((inicio, len(texto)))
@@ -165,6 +169,11 @@ def recortar_evidencia(texto: str, trecho: tuple[int, int], alvo: tuple[int, int
     do começo, como em tabelas sem pontuação, uma janela em volta dele.
     """
     a, b = trecho
+    # Um limite de caracteres não pode separar a lista do efeito que a descreve.
+    bloco = next(((x, y) for x, y in blocos_estruturados(texto[a:b])
+                  if x <= alvo[0] - a < y), None)
+    if bloco:
+        return a + bloco[0], a + bloco[1]
     if b - a <= MAX_EVIDENCIA:
         return a, b
     if alvo[1] - a <= MAX_EVIDENCIA - JANELA_DEPOIS:
@@ -234,7 +243,8 @@ class ServicoDicionario:
     @property
     def versao_processamento(self) -> str:
         codigo = hashlib.sha256()
-        for arquivo in (Path(__file__), Path(__file__).with_name("resolucao.py"), ARQUIVO_IGNORADOS):
+        for arquivo in (Path(__file__), Path(__file__).with_name("resolucao.py"),
+                        Path(__file__).with_name("contexto_evidencia.py"), ARQUIVO_IGNORADOS):
             codigo.update(arquivo.read_bytes())
         codigo.update("\n".join(sorted(self.ignorados)).encode("utf-8"))
         banco = hashlib.sha256("\n".join(
@@ -285,6 +295,7 @@ class ServicoDicionario:
 
         for a, b in faixas:
             original = texto[a:b]
+            efeito_compartilhado = mapear_texto(efeito_do_bloco(original)).texto
             mapa = mapear_texto(original, unir_hifenizacao=True)
             palavras = list(re.finditer(r"[a-z0-9]+", mapa.texto))
             if not palavras:
@@ -329,7 +340,8 @@ class ServicoDicionario:
                 oracao_ini = max(max(x for x in oracoes if x <= ini_norm), ini_norm - JANELA_NEGACAO)
                 oracao_fim = min(min(x for x in oracoes if x > ini_norm), fim_norm + JANELA_NEGACAO)
                 oracao = mapa.texto[oracao_ini:oracao_fim]
-                if AUSENCIA.search(oracao) or AUSENCIA_EXTRA.search(oracao):
+                if (AUSENCIA.search(oracao) or AUSENCIA_EXTRA.search(oracao)
+                        or AUSENCIA.search(efeito_compartilhado) or AUSENCIA_EXTRA.search(efeito_compartilhado)):
                     rejeitar(MotivoRejeicao.RELACAO_NAO_POSITIVA, termo, tipo, original, "Oração nega a interação.")
                     continue
                 alvo = nome_exibido(citado, termo)

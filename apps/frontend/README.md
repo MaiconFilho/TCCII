@@ -1,17 +1,22 @@
 # InteraMed — interface
 
+A pesquisa individual e entre vários medicamentos usa somente os cadastros
+existentes. Nomes ausentes exibem erro e não acionam coleta nem processamento.
+
 Frontend em Next.js (App Router), React, TypeScript, Tailwind CSS e shadcn/ui,
 ligado à API de consulta [`api_interacoes`](../api_interacoes/README.md). Os
 resultados vêm do banco: o tópico de interações das bulas profissionais da
-Anvisa, processado por [`identificacao_interacoes`](../identificacao_interacoes/README.md).
+Anvisa, processado por [`identificacao_interacoes`](../../pipelines/identificacao_interacoes/README.md).
 
 O hero usa uma superfície pontilhada animada em Three.js. A animação respeita
 `prefers-reduced-motion`, e o layout mantém a largura original em zoom de 100%,
 expandindo conteúdo e tipografia quando o zoom do navegador é reduzido.
 
-- **Busca de um medicamento**: sugestões da API enquanto digita; resultado em
-  duas abas — medicamentos citados **nesta bula** e **outras bulas** que citam
-  o medicamento (ou o seu princípio ativo), com "Carregar mais".
+- **Busca de um medicamento**: resumo geral de 2 a 3 parágrafos sobre as interações
+  da própria bula. “Ver detalhes” abre os cards e a paginação. Não inclui outras
+  bulas. Sem resumo gerado, informa a indisponibilidade e mantém os detalhes.
+- **Resumos dos cards**: preferem `resumo_card`, gerado pela etapa offline
+  `pipelines/resumos_interacoes`; usam o recorte anterior enquanto ele não existir.
 - **Verificar interações entre medicamentos**: adicione vários à lista e clique
   em Consultar interações. A interface consulta todos os pares únicos (inclusive entre os
   medicamentos adicionados), até quatro consultas simultâneas, e mostra o
@@ -20,7 +25,7 @@ expandindo conteúdo e tipografia quando o zoom do navegador é reduzido.
   janela de evidências. Menções e alertas continuam identificados separadamente.
   Os medicamentos podem ser removidos da lista antes de uma nova busca.
 - **Ver evidência**: trecho literal da bula, com o nome citado destacado, a bula
-  de origem, a data de publicação, o registro, a data da análise, o critério do
+  de origem, a data de publicação, o registro, o critério do
   vínculo e os medicamentos do banco com aquela substância.
 - **Sem gravidade**: as bulas não trazem escala padronizada e a interface não
   classifica gravidade.
@@ -29,16 +34,16 @@ expandindo conteúdo e tipografia quando o zoom do navegador é reduzido.
 
 São dois processos, em dois Prompts de Comando, a partir da raiz do projeto.
 
-1. API (precisa de `api_interacoes\.env` com a `DATABASE_URL`):
+1. API (precisa de `apps\api_interacoes\.env` com a `DATABASE_URL`):
 
    ```cmd
-   api_interacoes\.venv\Scripts\python -m apps.api_interacoes
+   apps\api_interacoes\.venv\Scripts\python -m apps.api_interacoes
    ```
 
 2. Frontend (requer Node.js 20.9 ou superior):
 
    ```cmd
-   cd frontend
+   cd apps\frontend
    npm install
    npm run dev
    ```
@@ -73,9 +78,9 @@ projeto versionado.
 - `app/`: rota inicial, layout, metadados e estilos globais.
 - `components/interamed.tsx`: interface, estados da consulta, cartões e janela de evidência.
 - `components/ui/`: componentes shadcn/ui gerados pelo CLI.
-- `lib/api.ts`: cliente da API e tipos das respostas (espelham `api_interacoes/contratos.py`).
-- `lib/interacoes-data.ts`: textos de exibição (estados, critérios de vínculo,
-  pesquisas frequentes), nomes legíveis e link de busca no Bulário.
+- `lib/api.ts`: cliente da API e tipos das respostas (espelham `apps/api_interacoes/contratos.py`).
+- `lib/interacoes-data.ts`: textos de exibição dos estados e critérios de vínculo,
+  nomes legíveis e link de busca no Bulário.
 
 O botão "Consultar no Bulário" abre a **busca** do medicamento no Bulário da
 Anvisa: a API não fornece o link do PDF específico. A interface não infere
