@@ -1,142 +1,128 @@
-# InteraMed — identificação de interações e consulta web
+# InteraMed — resumos de interações medicamentosas
 
-O projeto identifica interações descritas nas bulas, relaciona os medicamentos
-citados e gera resumos locais para consulta por API e interface web.
+Esta branch implementa a geração de resumos a partir das interações já
+identificadas nas bulas. A etapa usa um modelo local para explicar cada interação
+e reunir os resultados em um resumo geral do medicamento pesquisado. Os textos
+são gravados no PostgreSQL; a API e a interface apenas consultam o que está pronto.
 
-O InteraMed é um projeto acadêmico e informativo. Reúne evidências das bulas
-profissionais da Anvisa para ajudar a consultar interações entre medicamentos.
-Os resultados preservam o texto e a origem da evidência; não substituem avaliação
-profissional. Ausência de resultado não comprova ausência de interação.
+O resumo é uma apresentação do conteúdo encontrado, não uma validação clínica.
+O trecho original e sua fonte continuam disponíveis em **Ver evidência**.
 
-## Como esta entrega funciona
+## Como funciona
 
-1. A identificação lê o tópico já extraído em `bulas_interacoes`.
-2. A estratégia padrão, `dicionario`, procura nomes de medicamentos e princípios
-   ativos do cadastro. Aplica os filtros existentes para negações, exceções e
-   menções que não representam uma relação positiva.
-3. Cada relação preserva um recorte literal como evidência. As estratégias
-   opcionais `atual` e `duas_etapas` usam o modelo local com validação das respostas.
-4. A resolução associa o alvo textual aos medicamentos do cadastro pelas regras
-   existentes de nome, princípio ativo e equivalência declarada.
-5. A etapa opcional [resumos_interacoes](pipelines/resumos_interacoes/README.md)
-   gera resumos locais com LLM: um por registro e um geral de 2 a 3 parágrafos por bula.
-6. A API consulta resultados vigentes. O frontend permite consultar um medicamento
-   ou todos os pares de uma seleção, consolidando as evidências de cada par.
+1. **Seleção:** lê a identificação vigente da própria bula. Por padrão, processa
+   somente medicamentos com resumo geral ou algum resumo de card ainda vazio.
+2. **Contexto:** recupera a evidência literal e, quando a bula separa a lista de
+   medicamentos da descrição do efeito, reúne as duas partes do mesmo bloco.
+   Não usa o efeito de outro bloco nem de outra bula para completar o texto.
+3. **Cards:** trechos curtos, sem lista e com um único medicamento podem ser
+   apresentados literalmente. Nos demais casos, o LLM escreve uma explicação.
+   Alvos da mesma oração e do mesmo efeito podem reaproveitar um texto validado,
+   substituindo o nome, respeitadas as restrições descritas no guia do módulo.
+4. **Validação:** verifica formato, nomes, negações, contexto, direção do efeito
+   e afirmações sem apoio na evidência. Uma resposta rejeitada pode ter uma nova
+   tentativa com a indicação do problema; isso não garante fidelidade clínica.
+5. **Gravação:** cada card validado é salvo em uma transação curta. Cards prontos
+   são preservados na retomada e não exigem repetir a geração de toda a bula.
+6. **Resumo geral:** os cards preenchidos são agrupados por efeito: aumento,
+   redução ou efeito nos dois sentidos/sem direção definida. Cada grupo origina
+   um parágrafo. O resultado pode ter de um a três parágrafos, conforme os dados,
+   sempre com o medicamento pesquisado como origem explícita.
 
-A reorganização em monorepo muda caminhos e imports; não modifica esses critérios.
+As regras Python preparam o contexto, selecionam os registros e validam as
+respostas. O LLM redige os textos dos casos que exigem explicação e os parágrafos
+do geral. Se a geração de um parágrafo falhar após as tentativas previstas, o
+serviço pode compô-lo com os textos dos cards daquele grupo.
 
-## Tabelas da identificação
+## Modelo e execução
 
-| Tabela ou visão | Responsabilidade |
+O modelo é **Qwen2.5-1.5B-Instruct**, formato **GGUF Q4_K_M**, executado em CPU
+por `llama-cpp-python`. O provedor roda em processo separado, com timeout por
+chamada. A configuração reaproveita o ambiente e o cache da identificação.
+
+Os padrões da CLI são contexto de 4.096 tokens, saída de até 192 tokens por card,
+320 tokens por parágrafo do geral, temperatura zero e timeout de 90 segundos.
+Esses valores não modificam a configuração das etapas anteriores.
+
+## Persistência
+
+| Local | Informação |
 | --- | --- |
-| `processamentos_interacoes` | Histórico de tentativas, fonte, versão, modelo, status, contagens e tempos. |
-| `interacoes` | Alvo citado, tipo, resumo, evidência e referência ao processamento que produziu a relação. |
-| `interacoes_medicamentos` | Liga cada relação aos medicamentos correspondentes, com critério, fundamento e validade do vínculo. |
-| `processamentos_interacoes_vigentes` | Última conclusão não retirada e compatível com o texto e a bula atuais; usada na consulta. |
-| `processamentos_interacoes_registrados` | Último resultado compatível, incluindo revisão; usado para controlar a retomada. |
+| `interacoes.resumo_card` | Texto de apresentação do registro de interação. |
+| `interacoes.resumo_status`, `resumo_modelo`, `resumo_tempo_segundos`, `resumo_erro`, `resumo_atualizado_em` | Controle da geração por card. |
+| `processamentos_interacoes.resumo_geral` | Resumo geral associado à identificação da bula. |
+| Campos `resumo_*` de `processamentos_interacoes` | Status, modelo, data, erro e tempos da geração geral. |
 
-Reprocessar cria histórico. Uma linha antiga em `REVISAO_NECESSARIA` continua na
-tabela mesmo quando existe uma conclusão posterior. Conclusão é um estado
-operacional, não uma garantia de cobertura completa. A busca por dicionário não
-resolve automaticamente as pendências de uma tentativa anterior com LLM.
+Não são necessárias novas tabelas para os resumos. Os campos e controles estão
+nos SQLs aditivos [004](pipelines/identificacao_interacoes/migracoes/004_resumos_interacoes.sql)
+e [005](pipelines/identificacao_interacoes/migracoes/005_controle_resumos_cards.sql).
+Eles podem ser executados diretamente no pgAdmin, caso os campos ainda não
+existam. A API não cria campos nem executa migrações automaticamente.
 
-## Arquitetura e fluxo completo
+## Executar pela raiz do projeto
 
-```text
-Anvisa → scraping → PDFs e cadastro no PostgreSQL
-       → extração de composição, princípios ativos e tópico de interações
-       → identificação → relações e vínculos → API → frontend
-                       ↘ vetorização dos textos com pgvector (etapa independente)
-```
-
-- **Scraping:** Python e Selenium consultam o Bulário, baixam PDFs e registram a coleta.
-- **Extração:** PyMuPDF, OCR seletivo e LLM local leem as bulas e extraem os dados.
-- **Identificação:** Python, regras de correspondência e estratégias opcionais com LLM.
-- **Vetorização:** embeddings locais e PostgreSQL/pgvector preparam busca semântica;
-  os vetores não participam da consulta atual da interface.
-- **API:** FastAPI oferece sugestões, consulta individual, evidências e consulta de pares.
-- **Frontend:** Next.js, React, TypeScript, Tailwind CSS e shadcn/ui.
-- **Persistência:** PostgreSQL armazena cadastro, textos, processamentos, relações e vínculos.
-
-## Estrutura
-
-```text
-TCCII/
-├── apps/
-│   ├── frontend/
-│   └── api_interacoes/
-├── pipelines/
-│   ├── scraping_anvisa/
-│   ├── extracao_interacoes/
-│   ├── identificacao_interacoes/
-│   ├── resumos_interacoes/
-│   ├── conversao_interacoes_vetores/
-│   └── caminhos.py
-├── docs/
-├── backups_banco/
-├── .github/
-├── .gitignore
-└── README.md
-```
-
-Os arquivos `__init__.py` permitem importar `apps` e `pipelines` como pacotes.
-`pipelines/caminhos.py` reconhece os caminhos antigos dos arquivos que foram
-movidos, preservando os valores já registrados no banco.
-
-## Executar
-
-Execute os módulos a partir da raiz `TCCII`. Configure cada ambiente Python com o
-`requirements.txt` do respectivo módulo e crie seu `.env` a partir de `.env.example`.
-Os ambientes locais existentes foram movidos junto com seus módulos. Use
-`python -m pip` pelo executável do ambiente para instalar dependências.
-
-Exemplo no PowerShell, usando os ambientes locais existentes:
+Configure `DATABASE_URL` em `pipelines/identificacao_interacoes/.env` ou em
+`pipelines/resumos_interacoes/.env`. O exemplo de configuração fica no próprio
+módulo. Use um ambiente com suas [dependências](pipelines/resumos_interacoes/requirements.txt).
 
 ```powershell
-# Conferir opções, sem processar nem alterar o banco
-.\pipelines\scraping_anvisa\.venv\Scripts\python.exe -m pipelines.scraping_anvisa --help
-.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -m pipelines.extracao_interacoes --help
-.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -m pipelines.identificacao_interacoes --help
+# Um medicamento pendente
+.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -u -m pipelines.resumos_interacoes --nome-normalizado marevan
 
-# Identificação: simulação sem gravação
-.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -m pipelines.identificacao_interacoes --simular --todos
+# Todos os medicamentos com resumos pendentes
+.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -u -m pipelines.resumos_interacoes --todos
 
-# API de consulta
-.\apps\api_interacoes\.venv\Scripts\python.exe -m apps.api_interacoes
+# Refazer também os resumos já preenchidos
+.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -u -m pipelines.resumos_interacoes --todos --reprocessar
 
-# Frontend, em outro terminal
-cd apps\frontend
-npm ci
-npm run dev
+# Conferir inconsistências detectadas, sem gravar nem carregar modelo
+.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -u -m pipelines.resumos_interacoes --todos --corrigir-inconsistentes --listar
+
+# Corrigir somente as inconsistências detectadas
+.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -u -m pipelines.resumos_interacoes --todos --corrigir-inconsistentes
 ```
 
-A vetorização usa `python -m pipelines.conversao_interacoes_vetores` com as
-dependências próprias instaladas. A criação do banco fica em
-[pipelines/scraping_anvisa/criar_banco.sql](pipelines/scraping_anvisa/criar_banco.sql).
-As migrações da identificação são explícitas; a API não cria nem migra o banco.
+`--todos` preserva os textos preenchidos. `--reprocessar` força sua substituição
+e não mantém versões anteriores do resumo no mesmo registro. O modo
+`--corrigir-inconsistentes` não pode ser combinado com `--reprocessar`.
+Não execute dois lotes de resumos simultaneamente.
 
-## Documentação por componente
+## Organização da etapa
 
-- [Scraping](pipelines/scraping_anvisa/README.md)
-- [Extração](pipelines/extracao_interacoes/README.md)
-- [Identificação, estratégias e tabelas](pipelines/identificacao_interacoes/README.md)
-- [Resumos locais, validações e retomada](pipelines/resumos_interacoes/README.md)
-- [Vetorização](pipelines/conversao_interacoes_vetores/README.md)
-- [API e contratos](apps/api_interacoes/README.md)
-- [Frontend](apps/frontend/README.md)
-- [Guia da reorganização](docs/reorganizacao.md)
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `pipelines/resumos_interacoes/__main__.py` | Argumentos, configuração e processamento do lote. |
+| `repositorio.py` | Seleção, leitura das fontes e gravação dos resumos. |
+| `servico.py` | Coordenação dos cards, reaproveitamento e resumo geral. |
+| `prompts.py` | Instruções fornecidas ao modelo. |
+| `validacao.py` | Verificação das respostas antes da gravação. |
+| `provedor.py` | Processo do modelo, timeout e medição de memória. |
+| `benchmark.py` | Execução de amostras sem gravar resumos. |
+| `tests/` | Testes simulados e integração com banco isolado. |
 
-## Verificações e limites
+O [guia do módulo](pipelines/resumos_interacoes/README.md) detalha os critérios,
+a retomada, as correções de contexto, os comandos e os limites conhecidos.
 
-O workflow executa testes isolados dos pipelines, dos resumos e da API, além de lint,
-checagem de tipos e build do frontend. Testes PostgreSQL exigem um banco de testes
-isolado; nunca devem usar o banco de trabalho.
+## Apresentação dos resultados
 
-PDFs ausentes ou sem seção, falhas de leitura e nomes não reconhecidos limitam a
-cobertura. A interface não atribui gravidade clínica. A coleta depende da disponibilidade
-e das condições de acesso ao Bulário da Anvisa; falha de acesso não significa
-inexistência do medicamento.
+A consulta individual mostra o resumo geral e o botão **Ver detalhes**, que abre
+os cards e sua paginação. Cada card usa `resumo_card` quando disponível e mantém
+o recorte anterior como alternativa. **Ver evidência** exibe o trecho literal.
+Na consulta entre medicamentos, as evidências dos dois sentidos continuam
+agrupadas por par. Nenhuma consulta HTTP executa o modelo.
 
-Ambientes, credenciais, PDFs locais, modelos, caches, relatórios e backups não
-devem ser versionados. Consulte os READMEs internos para requisitos e comandos
-que efetivamente gravam resultados.
+## Verificar
+
+```powershell
+.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -m unittest discover -s pipelines/resumos_interacoes/tests -t .
+```
+
+Os testes com PostgreSQL exigem `IDENTIFICACAO_TEST_DATABASE_URL` apontando para
+um banco isolado cujo nome contenha `test`. O workflow valida os resumos com
+provedor simulado, além das verificações da API e do frontend.
+
+## Backup do banco
+
+O [backup atualizado](backups_banco/README.md) contém o esquema e os dados dos
+módulos publicados, incluindo os resumos já gravados. O guia informa a data,
+o hash de integridade, o escopo e os comandos de restauração.

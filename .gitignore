@@ -70,9 +70,10 @@ apps/api_interacoes/logs/
 pipelines/resumos_interacoes/relatorios/
 pipelines/resumos_interacoes/logs/
 
-# Artefatos locais e backups preservados, nunca publicados.
+# Artefatos locais; somente o backup de distribuicao revisado e versionado.
 backups_banco/*
 !backups_banco/README.md
+!backups_banco/interamed_atual.dump
 .doc_build_venv/
 TCCII_publish_worktree/
-docs/renderizacao*/
+/docs/
