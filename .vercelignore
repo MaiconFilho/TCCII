@@ -1,0 +1,8 @@
+# Não usados pela API
+backups_banco/
+pipelines/extracao_interacoes/
+pipelines/conversao_interacoes_vetores/
+pipelines/resumos_interacoes/
+**/tests/
+.github/
+**/__pycache__/
