@@ -202,7 +202,9 @@ histórico de versões do texto quando substituídos explicitamente.
 
 ### Requisitos e banco
 
-O ambiente verificado usa Python 3.13, Node.js 22 e PostgreSQL 18 com pgvector.
+O ambiente verificado usa Python 3.13, Node.js 22 e PostgreSQL 18. A extensão
+pgvector fica na etapa local de vetorização; não é necessária para restaurar o
+backup de distribuição nem para as consultas atuais da API.
 Instale as dependências de cada componente pelo seu `requirements.txt` ou
 `package-lock.json`; modelos e ambientes virtuais não fazem parte do Git.
 

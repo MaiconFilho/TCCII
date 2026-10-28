@@ -3,13 +3,15 @@
 O arquivo [`interamed_atual.dump`](interamed_atual.dump) contém o esquema e os
 dados do banco `TCC` usados pelos módulos publicados nesta branch.
 
-- **Snapshot:** 21/10/2026, às 15h28min05s (America/Sao_Paulo).
-- **Formato:** arquivo custom do PostgreSQL, com compressão nível 9.
+- **Snapshot:** 27/10/2026, às 16h56min28s (America/Sao_Paulo), conforme
+  `Archive created at` de `pg_restore -l`.
+- **Formato:** arquivo custom do PostgreSQL, com compressão gzip nível 9.
 - **Ferramenta:** `pg_dump` 18.6.
-- **Tamanho:** 61.122.010 bytes, aproximadamente 58,3 MiB.
-- **Restauração:** conferida com `pg_restore` 18.6 em um banco isolado, incluindo
-  criação do esquema, índices e restrições. As contagens restauradas coincidiram
-  com as contagens da origem no mesmo snapshot.
+- **Tamanho:** 21.450.506 bytes, aproximadamente 20,46 MiB.
+- **Restauração:** conferida com `pg_restore` 18.6 em banco PostgreSQL local,
+  temporário e isolado, sem erros na criação do esquema, índices e restrições.
+  As contagens abaixo foram consultadas nesse banco, e a consulta pela API
+  retornou o resumo geral simplificado de Abevmy.
 
 O snapshot é consistente mesmo que o processamento de resumos continue após a
 geração do arquivo. Ele não inclui alterações feitas depois do horário informado.
@@ -20,31 +22,33 @@ geração do arquivo. Ele não inclui alterações feitas depois do horário inf
 | --- | ---: |
 | `bulas` | 5.895 |
 | `bulas_interacoes` | 5.867 |
-| `bulas_interacoes_embeddings` | 17.143 |
 | `processamentos_interacoes` | 5.783 |
 | `interacoes` | 67.351 |
 | `interacoes_medicamentos` | 555.908 |
 
-No snapshot, 59.338 interações têm `resumo_card` preenchido e 3.937 processamentos
-têm `resumo_geral` preenchido. Isso descreve o conteúdo salvo, sem afirmar que a
-geração terminou para todos os medicamentos nem que os textos foram validados
-clinicamente.
+No snapshot, 66.145 interações têm `resumo_card` preenchido e 4.432 processamentos
+têm `resumo_geral` preenchido. Os campos em linguagem simples estão preenchidos
+em 613 registros de `resumo_card_simples` e 30 de `resumo_geral_simples`.
+Essas contagens consideram textos não vazios e descrevem o conteúdo salvo, sem
+afirmar que a geração terminou nem que os textos foram validados clinicamente.
 
-A tabela experimental `solicitacoes_medicamentos` foi excluída do backup porque
-a funcionalidade de inclusão permanece somente na máquina de desenvolvimento.
-Os dados das seis tabelas acima foram preservados integralmente, incluindo
-histórico, evidências, vínculos, vetores e resumos.
+A tabela `bulas_interacoes_embeddings` e a extensão pgvector não fazem parte
+deste backup, porque os vetores não participam da consulta atual. A tabela
+experimental `solicitacoes_medicamentos` e seus objetos associados continuam
+fora do arquivo; a inclusão permanece desativada na publicação.
 
-O arquivo não contém os PDFs, modelos, ambientes Python ou arquivos `.env`.
-Os caminhos de arquivos presentes nos registros são mantidos como metadados.
-Propriedades de dono e permissões de usuários não são exportadas.
+Os dados das cinco tabelas acima foram preservados, incluindo histórico,
+evidências, vínculos e resumos. O arquivo não contém os PDFs, modelos,
+ambientes Python ou arquivos `.env`. Os caminhos de arquivos presentes nos
+registros são mantidos como metadados. Propriedades de dono e permissões de
+usuários não são exportadas.
 
 ## Integridade
 
 SHA-256:
 
 ```text
-d83b15e06ef588f348d1e7505ac9346c82503889f1b6814cd02c3c1aef29e602
+fc8296e8a7dc260822c61fad9ff723359b63567a8c71832c72caac1b996db49b
 ```
 
 Na raiz do projeto, confira no PowerShell:
@@ -55,9 +59,10 @@ Get-FileHash .\backups_banco\interamed_atual.dump -Algorithm SHA256
 
 ## Restaurar
 
-Use PostgreSQL 18 com a extensão `pgvector` disponível no servidor. O exemplo
-cria outro banco e não substitui um banco existente. Os comandos abaixo supõem
-que os executáveis do PostgreSQL estejam no `PATH`.
+Use PostgreSQL 18. A extensão pgvector não é necessária para restaurar este
+backup nem para as consultas atuais da API. O exemplo cria outro banco e não
+substitui um banco existente. Os comandos abaixo supõem que os executáveis do
+PostgreSQL estejam no `PATH`.
 
 ```powershell
 createdb -h localhost -U postgres interamed_restaurado
