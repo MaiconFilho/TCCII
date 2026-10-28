@@ -14,9 +14,10 @@ from pipelines.identificacao_interacoes.validacao import DIRECOES, oracoes_do_al
 from pipelines.identificacao_interacoes.contexto_evidencia import efeito_do_bloco
 
 from .prompts import (ESQUEMA, SEM_DETALHE, agrupar_cards, extrativo, grupos_por_efeito,
-                      mensagens, mensagens_paragrafo)
+                      mensagens, mensagens_paragrafo, VERSAO_PROMPT, VERSAO_PROMPT_PILOTO)
 from .repositorio import completo, preenchido, necessita_correcao, necessita_correcao_geral
 from .validacao import limpar, validar_resposta, validar_fundamentacao, validar_contexto_geral
+from .contexto import validar_entrada
 
 LOGGER = logging.getLogger(__name__)
 
@@ -125,6 +126,7 @@ class CardsDoMesmoTrecho:
 
     def card(self, item: dict, gerador: "GeradorResumos", nome: str) -> tuple[str, str]:
         """(texto, origem), com origem "literal", "reaproveitado" ou "llm"."""
+        validar_entrada(item, nome)
         if self.literal(item):
             texto = limpar(item["evidencia"])
             return texto[:1].upper() + texto[1:], "literal"
@@ -154,7 +156,7 @@ class CardsDoMesmoTrecho:
 
 
 class GeradorResumos:
-    def __init__(self, provedor, config, *, tokens_card=192, tokens_geral=320):
+    def __init__(self, provedor, config, *, tokens_card=192, tokens_geral=320, prompt_simplificado=False):
         self.provedor = provedor
         self.config = config
         self.tempo_inferencia = 0.0
@@ -162,6 +164,8 @@ class GeradorResumos:
         self.tokens_card = tokens_card
         self.tokens_geral = tokens_geral
         self.registros = []
+        self.prompt_simplificado = prompt_simplificado
+        self.versao_prompt = VERSAO_PROMPT_PILOTO if prompt_simplificado else VERSAO_PROMPT
 
     def gerar(self, nome: str, dados: list[dict], *, geral=False, exemplo=None, outros=()) -> str:
         """Card: dados = [interação]; `exemplo` = (alvo, card já escrito) do mesmo trecho;
@@ -213,7 +217,8 @@ class GeradorResumos:
         else:
             if not dados[0].get("efeito"):
                 dados = [{**dados[0], "efeito": efeito_do_bloco(dados[0]["evidencia"])}]
-            entrada, evidencia = mensagens(nome, dados, exemplo, outros), dados[0]["evidencia"]
+            entrada = mensagens(nome, dados, exemplo, outros, simplificado=self.prompt_simplificado)
+            evidencia = dados[0]["evidencia"]
         if correcao:
             # Curta e no fim do pedido: assim o 1.5B reescreveu "A interação com racecadotrila
             # aumenta o risco de angioedema." No prompt de sistema ele a ignorava; como diálogo
@@ -322,7 +327,7 @@ def processar(repositorio, nome: str, gerador: GeradorResumos, *, reprocessar=Fa
                     informar("  Mesma frase e mesmo efeito de um card anterior: mesmo texto, trocando só o medicamento.")
                 # resumo_modelo registra que o card literal não passou pelo LLM.
                 repositorio.gravar_card(fonte, item, texto, "trecho_literal" if origem == "literal" else modelo,
-                                        perf_counter() - chamada)
+                                        perf_counter() - chamada, origem=origem)
                 registro.update(resumo=texto, origem=origem)
                 gravados += 1
                 informar(f"[{indice}/{len(selecionadas)}] concluído e gravado em {perf_counter() - chamada:.1f}s")

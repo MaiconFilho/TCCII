@@ -57,6 +57,7 @@ def executar(repo, nome, gerador, limite=5, alvo=None):
         print(f"  {'ERRO: ' + geral['erro'] if geral['erro'] else geral['texto']} ({geral['segundos']:.1f}s)", flush=True)
     gerados = [r for r in resultados if r["origem"] == "llm"]
     return {"medicamento": nome, "modelo": gerador.config.arquivo_modelo,
+            "versao_prompt": gerador.versao_prompt,
             "busca_segundos": busca_segundos, "quantidade_interacoes": len(fonte["interacoes"]),
             "chamadas_llm": gerador.chamadas,
             "tokens_card": gerador.tokens_card, "resultados": resultados,

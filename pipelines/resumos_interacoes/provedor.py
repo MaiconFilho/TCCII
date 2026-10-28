@@ -13,7 +13,7 @@ import psutil
 LOGGER = logging.getLogger(__name__)
 
 
-def worker(canal, config, cache):
+def worker(canal, config, cache, *, revisao=None):
     try:
         from huggingface_hub import hf_hub_download
         from pipelines.identificacao_interacoes.provedor import configuracao_llm
@@ -21,6 +21,8 @@ def worker(canal, config, cache):
         inicio = time.perf_counter()
         args = dict(repo_id=config.repositorio_modelo, filename=config.arquivo_modelo,
                     cache_dir=str(cache))
+        if revisao:
+            args["revision"] = revisao
         try:
             caminho = hf_hub_download(**args, local_files_only=True)
         except Exception:
@@ -57,13 +59,14 @@ def worker(canal, config, cache):
 
 class ProvedorIsolado:
     def __init__(self, config, cache: Path, *, timeout=90, timeout_carga=600,
-                 informar=print, alvo_worker=worker):
+                 informar=print, alvo_worker=worker, revisao=None):
         self.config = config
         self.cache = cache
         self.timeout = timeout
         self.timeout_carga = timeout_carga
         self.informar = informar
         self.alvo_worker = alvo_worker
+        self.revisao = revisao
         self.processo = None
         self.canal = None
         self.caminho = ""
@@ -77,7 +80,8 @@ class ProvedorIsolado:
         self.fechar()
         contexto = mp.get_context("spawn")
         self.canal, filho = contexto.Pipe()
-        self.processo = contexto.Process(target=self.alvo_worker, args=(filho, self.config, self.cache), daemon=True)
+        self.processo = contexto.Process(target=self.alvo_worker, args=(filho, self.config, self.cache),
+                                         kwargs={"revisao": self.revisao} if self.revisao else {}, daemon=True)
         self.informar(f"Carregando modelo {self.config.arquivo_modelo} (CPU)...")
         self.processo.start()
         filho.close()
@@ -96,9 +100,9 @@ class ProvedorIsolado:
                 raise TimeoutError(f"Timeout de {timeout}s na etapa {etapa}; worker encerrado.")
             try:
                 memoria = psutil.Process(self.processo.pid).memory_info()
-                self.pico_memoria_mb = max(self.pico_memoria_mb, memoria.rss / 1024**2,
-                                          getattr(memoria, "peak_wset", 0) / 1024**2)
-                if self.config.limite_memoria_mb and self.pico_memoria_mb > self.config.limite_memoria_mb:
+                memoria_worker_mb = max(memoria.rss, getattr(memoria, "peak_wset", 0)) / 1024**2
+                self.pico_memoria_mb = max(self.pico_memoria_mb, memoria_worker_mb)
+                if self.config.limite_memoria_mb and memoria_worker_mb > self.config.limite_memoria_mb:
                     self.fechar()
                     raise MemoryError("Worker excedeu o limite configurado de memória.")
             except psutil.Error:

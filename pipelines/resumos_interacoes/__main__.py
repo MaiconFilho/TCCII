@@ -19,6 +19,7 @@ from pipelines.identificacao_interacoes.main_identificacao import (
 from .provedor import ProvedorIsolado
 from .repositorio import RepositorioResumos
 from .servico import GeradorResumos, processar
+from .prompts import VERSAO_PROMPT, VERSAO_PROMPT_PILOTO
 
 BASE = Path(__file__).resolve().parent
 
@@ -45,6 +46,8 @@ def argumentos(argv=None):
                              "(versão anterior do código). Retomável: as refeitas ganham data nova.")
     parser.add_argument("--limite-interacoes", type=inteiro_positivo)
     parser.add_argument("--benchmark-modelo", action="store_true")
+    parser.add_argument("--prompt-simplificado", action="store_true",
+                        help="Testa o prompt piloto somente com --benchmark-modelo, sem gravar resumos.")
     parser.add_argument("--alvo-benchmark", help="Restringe o benchmark a um alvo textual, sem gravação.")
     parser.add_argument("--tokens-card", type=inteiro_positivo, default=192)
     parser.add_argument("--tokens-geral", type=inteiro_positivo, default=320)
@@ -57,6 +60,8 @@ def argumentos(argv=None):
         parser.error("Benchmark exige --nome-normalizado e não grava no banco.")
     if args.alvo_benchmark and not args.benchmark_modelo:
         parser.error("--alvo-benchmark exige --benchmark-modelo.")
+    if args.prompt_simplificado and not args.benchmark_modelo:
+        parser.error("--prompt-simplificado exige --benchmark-modelo; o piloto não grava resumos.")
     if args.corrigir_inconsistentes and (args.reprocessar or args.refazer_antes or args.benchmark_modelo):
         parser.error("--corrigir-inconsistentes não combina com --reprocessar, --refazer-antes ou --benchmark-modelo.")
     return args
@@ -76,6 +81,8 @@ def main(argv=None):
                         encoding="utf-8", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     logging.info("Argumentos da execução: %s", vars(args))
+    versao_prompt = VERSAO_PROMPT_PILOTO if args.prompt_simplificado else VERSAO_PROMPT
+    logging.info("Versão do prompt: %s", versao_prompt)
     repo = None
     provedor = None
     inicio = perf_counter()
@@ -109,7 +116,8 @@ def main(argv=None):
         provedor = ProvedorIsolado(config, diretorio_modelos(), timeout=args.timeout,
                                   informar=lambda texto: print(texto, flush=True))
         provedor.iniciar()
-        gerador = GeradorResumos(provedor, config, tokens_card=args.tokens_card, tokens_geral=args.tokens_geral)
+        gerador = GeradorResumos(provedor, config, tokens_card=args.tokens_card, tokens_geral=args.tokens_geral,
+                                prompt_simplificado=args.prompt_simplificado)
         if args.benchmark_modelo:
             from .benchmark import executar
             resultado = executar(repo, args.nome_normalizado, gerador, args.limite_interacoes or 5,
@@ -147,6 +155,7 @@ def main(argv=None):
                                  "tempo_inferencia_segundos": round(gerador.tempo_inferencia, 3),
                                  "tempo_total_segundos": round(perf_counter() - inicio_item, 3),
                                  "erro": f"{type(erro).__name__}: {erro}", "gravacao_parcial": False}
+                resultado["versao_prompt"] = versao_prompt
                 if escritor is None:
                     escritor = csv.DictWriter(saida, fieldnames=list(resultado))
                     escritor.writeheader()
@@ -156,7 +165,8 @@ def main(argv=None):
                 # todos os cards a cada bula ficaria quadrático na base inteira (66 mil cards).
                 with arquivo.with_suffix(".jsonl").open("a", encoding="utf-8") as auditoria:
                     for registro in gerador.registros:
-                        auditoria.write(json.dumps({"modelo": config.arquivo_modelo, **registro},
+                        auditoria.write(json.dumps({"modelo": config.arquivo_modelo,
+                                                   "versao_prompt": versao_prompt, **registro},
                                                    ensure_ascii=False) + "\n")
                 gerador.registros.clear()
                 logging.info("Resultado: %s", resultado)

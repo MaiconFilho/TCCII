@@ -58,7 +58,7 @@ class RepositorioFalso:
     def iniciar(self, fonte):
         pass
 
-    def gravar_card(self, fonte, item, texto, modelo, tempo, erro=None):
+    def gravar_card(self, fonte, item, texto, modelo, tempo, erro=None, *, origem=None):
         self.cards_gravados.append((item["id"], texto, erro))
         self.modelos_card.append(modelo)
         if texto:
@@ -97,7 +97,7 @@ class TestResumos(unittest.TestCase):
         self.repo = RepositorioFalso()
         self.provedor = ProvedorFalso()
         self.config = ConfiguracaoIdentificacao()
-        self.gerador = GeradorResumos(self.provedor, self.config)
+        self.gerador = GeradorResumos(self.provedor, self.config, prompt_simplificado=True)
 
     def test_gera_card_e_geral_sem_alterar_evidencia(self):
         antes = copy.deepcopy(self.repo.atual)
@@ -226,12 +226,13 @@ class TestResumos(unittest.TestCase):
         self.assertEqual(segunda[-1]["content"], primeira[-1]["content"]
                          + "\nAtenção: Resumo vazio ou fora do tamanho permitido (40–600).")
 
-    def test_exemplos_do_prompt_usam_o_nome_da_bula_e_nao_x(self):
+    def test_prompt_recebe_so_evidencia_real_sem_exemplos_ficticios(self):
         self.gerador.gerar("marevan", [{"alvo": "ácido acetilsalicílico", "tipo_alvo": "PRINCIPIO_ATIVO",
                                         "evidencia": TRECHO}])
-        exemplos = " ".join(m["content"] for m in self.provedor.entradas[0][0][1:-1])
-        self.assertIn("ação de Marevan", exemplos)
-        self.assertNotRegex(exemplos, r"\bX\b")
+        mensagens = self.provedor.entradas[0][0]
+        self.assertEqual([m["role"] for m in mensagens], ["system", "user"])
+        self.assertIn("ALVO: ácido acetilsalicílico", mensagens[-1]["content"])
+        self.assertNotRegex(" ".join(m["content"] for m in mensagens), r"\b[ABDX]\b")
 
     def test_primeira_resposta_fica_se_a_nova_tentativa_falhar_apos_citar_outro_medicamento(self):
         # Caso real (Acertanlo): a nova tentativa trouxe "o efeito de X".
@@ -422,7 +423,8 @@ class TestResumos(unittest.TestCase):
         self.gerador.provedor = ProvedorFalso([carbidopa, carbidopa, levodopa, levodopa, resposta(GERAL)])
         processar(self.repo, "vitaminas", self.gerador)
         self.assertEqual(self.repo.cards_gravados[1][1], "Levodopa, usada junto com carbidopa, tem esse efeito evitado.")
-        self.assertIn("Card já escrito para carbidopa", self.gerador.provedor.entradas[2][0][-1]["content"])
+        self.assertIn("ALVO: levodopa", self.gerador.provedor.entradas[2][0][-1]["content"])
+        self.assertNotIn("Card já escrito", self.gerador.provedor.entradas[2][0][-1]["content"])
 
     def test_lista_curta_e_condensada_para_o_alvo(self):
         lista = ("• A atividade anticoagulante da varfarina pode ser inibida por alguns fármacos, tais como: "
@@ -446,7 +448,7 @@ class TestResumos(unittest.TestCase):
         self.assertTrue(any(m.startswith("[30/30]") for m in mensagens))
         # Cada card recebe só a própria interação; o geral vem depois, com os cards
         # idênticos agrupados numa única linha.
-        self.assertTrue(all(e[0][-1]["content"].count("Trecho da bula:") == 1
+        self.assertTrue(all(e[0][-1]["content"].count("Evidência literal:") == 1
                             for e in self.gerador.provedor.entradas[:30]))
         self.assertEqual(self.gerador.provedor.entradas[30][0][-1]["content"].count("risco de sangramento"), 1)
 
@@ -510,7 +512,7 @@ class TestResumos(unittest.TestCase):
         resultado = processar(self.repo, "marevan", self.gerador)
         self.assertEqual(resultado["status"], "CONCLUIDO", resultado)
         self.assertEqual(resultado["chamadas_llm"], 2)  # um card escrito pelo LLM + um parágrafo
-        self.assertIn("Não cite estes outros medicamentos do mesmo trecho: fluconazol, paracetamol.",
+        self.assertIn("ALVO: amiodarona",
                       self.gerador.provedor.entradas[0][0][-1]["content"])
         self.assertEqual([texto for _, texto, _ in self.repo.cards_gravados], [
             "Amiodarona pode aumentar a ação da varfarina, deixando o efeito mais intenso.",
@@ -544,7 +546,7 @@ class TestResumos(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "instruções do prompt"):
             validar_resposta(resposta(texto), LISTA)
         with self.assertRaisesRegex(ValueError, "aspas"):
-            validar_resposta(resposta("A atividade da varfarina pode ser potencializada por 'fluconazol'."), LISTA)
+            validar_resposta(resposta("A atividade da varfarina pode causar 'cura garantida'."), LISTA)
 
     def test_retomada_reaproveita_card_ja_gravado_sem_chamar_o_modelo(self):
         self.repo.atual["interacoes"] = [
@@ -608,8 +610,8 @@ class TestResumos(unittest.TestCase):
         self.gerador.provedor = ProvedorFalso([resposta(correto), resposta(correto)])
         # O repositório real publica o recorte ampliado junto com o card.
         gravar = self.repo.gravar_card
-        def gravar_card(fonte, item, *args):
-            gravar(fonte, item, *args)
+        def gravar_card(fonte, item, *args, **kwargs):
+            gravar(fonte, item, *args, **kwargs)
             self.repo.atual["interacoes"][0].pop("evidencia_original", None)
         self.repo.gravar_card = gravar_card
         resultado = processar(self.repo, "fluidsoro", self.gerador, corrigir_inconsistentes=True)
@@ -698,6 +700,19 @@ class TestResumos(unittest.TestCase):
             argumentos(["--corrigir-inconsistentes", "--reprocessar"])
         with self.assertRaises(SystemExit):
             argumentos(["--alvo-benchmark", "linezolida"])
+        with self.assertRaises(SystemExit):
+            argumentos(["--todos", "--prompt-simplificado"])
+        self.assertTrue(argumentos(["--benchmark-modelo", "--nome-normalizado", "marevan",
+                                   "--prompt-simplificado"]).prompt_simplificado)
+
+    def test_prompt_original_permanece_padrao_fora_do_piloto(self):
+        gerador = GeradorResumos(ProvedorFalso([resposta(EVIDENCIA)]), self.config)
+        gerador.gerar("marevan", [{"alvo": "ácido acetilsalicílico", "tipo_alvo": "PRINCIPIO_ATIVO",
+                                   "evidencia": TRECHO}])
+        self.assertFalse(gerador.prompt_simplificado)
+        mensagens = gerador.provedor.entradas[0][0]
+        self.assertEqual(len(mensagens), 6)
+        self.assertIn("ação de Marevan", mensagens[2]["content"])
 
 
 if __name__ == "__main__":

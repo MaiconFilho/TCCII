@@ -19,6 +19,21 @@ def worker_com_erro(canal, config, cache):
 
 
 class TestWorker(unittest.TestCase):
+    def test_pico_historico_nao_bloqueia_worker_novo_abaixo_do_limite(self):
+        from dataclasses import replace
+
+        config = replace(ConfiguracaoIdentificacao(), limite_memoria_mb=512)
+        p = ProvedorIsolado(config, Path("."), timeout_carga=10,
+                           informar=lambda s: None, alvo_worker=worker_com_erro)
+        # O acumulador serve ao relatório; o limite deve medir o worker atual.
+        p.pico_memoria_mb = 10000
+        try:
+            p.iniciar()
+            self.assertIsNotNone(p.processo)
+            self.assertEqual(p.pico_memoria_mb, 10000)
+        finally:
+            p.fechar()
+
     def test_timeout_encerra_processo_real(self):
         p = ProvedorIsolado(ConfiguracaoIdentificacao(), Path("."), timeout=0.3,
                            timeout_carga=10, informar=lambda s: None, alvo_worker=worker_lento)
