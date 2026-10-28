@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from pipelines.identificacao_interacoes.modelos import CriterioVinculo, TipoAlvo
 
@@ -42,6 +43,37 @@ class Erro(BaseModel):
     erro: str = Field(description="Código estável do erro.")
     mensagem: str = Field(description="Mensagem para o usuário, sem detalhes internos.")
     detalhes: list[dict[str, str]] = Field(default_factory=list)
+
+
+class PedidoPreparacao(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    nome: str = Field(min_length=1, max_length=200)
+
+
+class SelecaoAnvisa(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    nome_normalizado: str = Field(min_length=1, max_length=200)
+
+
+class OpcaoAnvisa(BaseModel):
+    nome_normalizado: str
+    nome_produto: str
+    numero_registro: str
+    data_publicacao: datetime | None = None
+
+
+class RespostaPreparacao(BaseModel):
+    id: UUID | None
+    nome_solicitado: str
+    nome_confirmado: str | None = None
+    estado: Literal['AGUARDANDO', 'EM_PROCESSAMENTO', 'AGUARDANDO_SELECAO', 'CONCLUIDO',
+                    'NAO_ENCONTRADO', 'FALHA', 'REVISAO_NECESSARIA']
+    etapa: str
+    mensagem: str
+    opcoes: list[OpcaoAnvisa] = Field(default_factory=list)
+    criado_em: datetime | None = None
+    atualizado_em: datetime | None = None
+    concluido_em: datetime | None = None
 
 
 class Saude(BaseModel):
@@ -111,6 +143,7 @@ class Relacao(BaseModel):
     tipo_alvo: TipoAlvo
     resumo: str
     resumo_card: str | None = None
+    resumo_card_simples: str | None = Field(default=None, description="Reescrita válida para o original e a evidência atuais.")
     evidencia: str = Field(description="Trecho literal de bulas_interacoes.trecho_interacoes.")
     gravidade: Literal["desconhecida"] = Field(
         default="desconhecida", description="Não há classificação fundamentada de gravidade."
@@ -150,6 +183,7 @@ class Paginacao(BaseModel):
 class ResumoGeral(BaseModel):
     status: Literal["CONCLUIDO", "PENDENTE"] = "PENDENTE"
     texto: str | None = None
+    texto_simples: str | None = None
     gerado_em: datetime | None = None
     processamento_id: int | None = None
 
@@ -177,6 +211,7 @@ class ItemPar(BaseModel):
     tipo_alvo: TipoAlvo
     resumo: str
     resumo_card: str | None = None
+    resumo_card_simples: str | None = None
     criterio_vinculo: CriterioVinculo | None = None
     fundamento_vinculo: str | None = Field(
         default=None,

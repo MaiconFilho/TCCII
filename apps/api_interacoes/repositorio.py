@@ -21,6 +21,8 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from pipelines.identificacao_interacoes.modelos import chave_bloqueio, partes_chave_bloqueio
+from pipelines.resumos_interacoes.rastreabilidade import entrada_card, entrada_geral, simples_atual
+from pipelines.identificacao_interacoes.validacao import relacao_nao_positiva
 
 from .configuracao import ConfiguracaoApi
 from .erros import BancoIndisponivelError, EsquemaAusenteError
@@ -107,9 +109,18 @@ COLUNAS_RELACAO = f"""
     i.tipo_alvo,
     i.resumo,
     NULLIF(BTRIM(i.resumo_card), '') AS resumo_card,
+    i.resumo_card_simples,
+    i.reescrita_controle,
+    (SELECT JSONB_AGG(JSONB_BUILD_OBJECT('id', g.id, 'alvo', g.alvo, 'tipo_alvo', g.tipo_alvo,
+                'resumo_card', g.resumo_card, 'resumo', g.resumo, 'evidencia', g.evidencia) ORDER BY g.id)
+     FROM interacoes g WHERE g.processamento_id=i.processamento_id
+        AND g.alvo=i.alvo AND g.tipo_alvo=i.tipo_alvo
+        AND NULLIF(BTRIM(g.resumo_card), '') IS NOT NULL) AS resumos_mesmo_alvo,
+    bo.principios_ativos,
     i.evidencia,
     {NOME_EXIBICAO.format(t="bo")} AS origem_exibicao,
     v.id AS processamento_id,
+    v.hash_trecho,
     v.status AS status_processamento,
     v.concluido_em,
     v.versao_processamento,
@@ -246,7 +257,14 @@ class RepositorioConsulta:
     def _consultar(self, sql: str, parametros: Sequence | dict | None = None) -> list[dict]:
         try:
             with self.pool.connection() as conexao:
-                return list(conexao.execute(sql, parametros).fetchall())
+                linhas = list(conexao.execute(sql, parametros).fetchall())
+                for linha in linhas:
+                    if linha.get("resumos_mesmo_alvo"):
+                        linha["resumos_mesmo_alvo"] = [i for i in linha["resumos_mesmo_alvo"] if not relacao_nao_positiva(i)]
+                    if "resumo_card_simples" in linha and not simples_atual(
+                            linha["resumo_card_simples"], linha.get("reescrita_controle"), entrada_card(linha)):
+                        linha["resumo_card_simples"] = None
+                return linhas
         except (errors.UndefinedTable, errors.UndefinedColumn) as erro:
             LOGGER.exception("Esquema ausente: %r", erro)
             raise EsquemaAusenteError(
@@ -267,8 +285,8 @@ class RepositorioConsulta:
                 (list(OBJETOS_NECESSARIOS),),
             )
             if not linhas:
-                self._consultar("SELECT resumo_card FROM interacoes LIMIT 0")
-                self._consultar("SELECT resumo_geral, resumo_gerado_em FROM processamentos_interacoes LIMIT 0")
+                self._consultar("SELECT resumo_card, resumo_card_simples, reescrita_controle FROM interacoes LIMIT 0")
+                self._consultar("SELECT resumo_geral, resumo_gerado_em, resumo_geral_simples, reescrita_controle FROM processamentos_interacoes LIMIT 0")
         except (BancoIndisponivelError, EsquemaAusenteError):
             return False, False
         return True, not linhas
@@ -383,12 +401,24 @@ class RepositorioConsulta:
             return None
         linhas = self._consultar("""
             SELECT p.resumo_geral AS texto, p.resumo_gerado_em AS gerado_em,
-                   p.id AS processamento_id, 'CONCLUIDO' AS status
+                   p.id AS processamento_id, 'CONCLUIDO' AS status,
+                   p.resumo_geral, p.resumo_geral_simples AS texto_simples, p.reescrita_controle,
+                   p.medicamento_origem, p.hash_trecho, p.sha256_pdf, b.principios_ativos
             FROM processamentos_interacoes p
             JOIN processamentos_interacoes_vigentes v ON v.id = p.id
+            JOIN bulas b ON b.nome_normalizado=p.medicamento_origem
             WHERE p.id = %s AND NULLIF(BTRIM(p.resumo_geral), '') IS NOT NULL
         """, (processamento_id,))
-        return linhas[0] if linhas else None
+        if not linhas:
+            return None
+        linha = linhas[0]
+        if linha["texto_simples"]:
+            interacoes = self._consultar("SELECT id, alvo, evidencia FROM interacoes WHERE processamento_id=%s ORDER BY id",
+                                         (processamento_id,))
+            entrada = entrada_geral(linha, [i for i in interacoes if not relacao_nao_positiva(i)])
+            if not simples_atual(linha["texto_simples"], linha["reescrita_controle"], entrada):
+                linha["texto_simples"] = None
+        return {k: linha[k] for k in ("texto", "texto_simples", "gerado_em", "processamento_id", "status")}
 
     def relacoes_do_par(self, a: str, b: str) -> list[dict]:
         return self._consultar(SQL_RELACOES_PAR, {"a": a, "b": b, "nomes": [a, b]})

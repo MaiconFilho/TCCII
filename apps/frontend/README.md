@@ -1,7 +1,10 @@
 # InteraMed — interface
 
-A pesquisa individual e entre vários medicamentos usa somente os cadastros
-existentes. Nomes ausentes exibem erro e não acionam coleta nem processamento.
+A inclusão automática está suspensa (`NEXT_PUBLIC_INCLUSAO_MEDICAMENTOS=false`
+por padrão). A pesquisa individual e entre vários medicamentos usa somente os
+cadastros existentes; nomes ausentes exibem erro. Não há solicitação nem retomada
+de preparação nessa configuração. O código experimental permanece disponível no
+[guia da inclusão](../../pipelines/inclusao_medicamentos/README.md).
 
 Frontend em Next.js (App Router), React, TypeScript, Tailwind CSS e shadcn/ui,
 ligado à API de consulta [`api_interacoes`](../api_interacoes/README.md). Os
@@ -25,7 +28,7 @@ expandindo conteúdo e tipografia quando o zoom do navegador é reduzido.
   janela de evidências. Menções e alertas continuam identificados separadamente.
   Os medicamentos podem ser removidos da lista antes de uma nova busca.
 - **Ver evidência**: trecho literal da bula, com o nome citado destacado, a bula
-  de origem, a data de publicação, o registro, o critério do
+  de origem, a data de publicação, o registro, a data da análise, o critério do
   vínculo e os medicamentos do banco com aquela substância.
 - **Sem gravidade**: as bulas não trazem escala padronizada e a interface não
   classifica gravidade.
@@ -79,9 +82,31 @@ projeto versionado.
 - `components/interamed.tsx`: interface, estados da consulta, cartões e janela de evidência.
 - `components/ui/`: componentes shadcn/ui gerados pelo CLI.
 - `lib/api.ts`: cliente da API e tipos das respostas (espelham `apps/api_interacoes/contratos.py`).
-- `lib/interacoes-data.ts`: textos de exibição dos estados e critérios de vínculo,
-  nomes legíveis e link de busca no Bulário.
+- `lib/interacoes-data.ts`: textos de exibição (estados, critérios de vínculo,
+  pesquisas frequentes), nomes legíveis e link de busca no Bulário.
 
 O botão "Consultar no Bulário" abre a **busca** do medicamento no Bulário da
 Anvisa: a API não fornece o link do PDF específico. A interface não infere
 gravidade nem trata ausência de resultado como ausência comprovada de interação.
+
+## Resumos em linguagem simples
+
+O geral usa `texto_simples` quando fornecido pela API; os cards individuais e
+de pares usam `resumo_card_simples`. Na ausência de uma versão válida, continuam
+usando o resumo original e, no card, o recorte anterior como último recurso.
+O frontend não carrega modelos nem confere hashes: a API verifica a vigência.
+A janela **Ver evidência** continua mostrando o trecho literal da bula.
+
+## Preparação de medicamentos novos (experimental, desativada)
+
+O comportamento a seguir só se aplica quando a inclusão estiver habilitada
+explicitamente na API e no frontend. Ao clicar em **Consultar interações**, um medicamento ausente é incluído
+automaticamente por POST, sem um botão separado de busca externa e sem
+scraping durante a digitação. No campo de outros medicamentos, **Adicionar**
+também prepara um nome ainda indisponível. O painel acompanha as etapas a cada
+cinco segundos e preserva o UUID/contexto no armazenamento local para retomar após
+atualizar a página. Alternativas externas precisam de confirmação do usuário.
+Depois de concluir, abre a consulta individual ou refaz os pares selecionados.
+Medicamentos encontrados localmente seguem direto para os endpoints de consulta:
+não se solicita auditoria ou reprocessamento de suas etapas pela interface.
+Consulte a [configuração da API e do trabalhador](../../pipelines/inclusao_medicamentos/README.md).

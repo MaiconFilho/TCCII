@@ -193,6 +193,20 @@ class TestApi(unittest.TestCase):
         self.assertEqual(corpo["relacoes"][0]["id"], 10)
         self.assertEqual(corpo["paginacao"]["total"], 3)
 
+    def test_reescrita_separada_preserva_campos_originais_e_evidencia(self):
+        self.repositorio.resumo_geral = lambda pid: {
+            "status": "CONCLUIDO", "texto": "Resumo geral original.", "texto_simples": "Resumo geral simples.",
+            "gerado_em": DATA, "processamento_id": pid,
+        }
+        linha = self.repositorio.relacoes[0]
+        linha.update(resumo_card="Card original.", resumo_card_simples="Card simples.")
+        corpo = self.cliente.get("/api/interacoes", params={"medicamento": "varfarina"}).json()
+        self.assertEqual(corpo["relacoes"][0]["resumo_card"], "Card original.")
+        self.assertEqual(corpo["relacoes"][0]["resumo_card_simples"], "Card simples.")
+        self.assertEqual(corpo["relacoes"][0]["evidencia"], linha["evidencia"])
+        self.assertEqual(corpo["resumo_geral"]["texto"], "Resumo geral original.")
+        self.assertEqual(corpo["resumo_geral"]["texto_simples"], "Resumo geral simples.")
+
     def test_totais_contam_interacoes_agrupadas_sem_repetir_evidencias(self) -> None:
         self.repositorio.relacoes.extend([
             linha_relacao(14, "varfarina", "ÁCIDO ACETILSALICÍLICO", "PRINCIPIO_ATIVO"),
@@ -405,7 +419,8 @@ class TestInicializacaoSemInferencia(unittest.TestCase):
             "criar_app(ConfiguracaoApi(dsn='postgresql://ninguem@127.0.0.1:1/x'))\n"
             "proibidos = ('llama_cpp', 'torch', 'transformers', 'pymupdf', 'fitz', 'selenium',"
             " 'pipelines.extracao_interacoes', 'pipelines.conversao_interacoes_vetores', 'pipelines.identificacao_interacoes.servico',"
-            " 'pipelines.identificacao_interacoes.provedor', 'pipelines.resumos_interacoes.provedor', 'huggingface_hub')\n"
+            " 'pipelines.identificacao_interacoes.provedor', 'pipelines.resumos_interacoes.provedor',"
+            " 'pipelines.resumos_interacoes.reescrita', 'huggingface_hub')\n"
             "carregados = sorted(m for m in sys.modules if any(m == p or m.startswith(p + '.') for p in proibidos))\n"
             "print(carregados)\n"
             "sys.exit(1 if carregados else 0)\n"

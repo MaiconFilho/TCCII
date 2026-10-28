@@ -69,6 +69,33 @@ class TestApiPostgresReal(unittest.TestCase):
         self.identificacao.fechar()
         self.conexao.close()
 
+    def test_resumo_agrupado_confere_fontes_fora_da_pagina(self):
+        from pipelines.resumos_interacoes.repositorio import RepositorioReescrita, unidades_reescrita
+        from pipelines.resumos_interacoes.rastreabilidade import hash_dados, VERSAO_REESCRITA
+
+        self.conexao.execute("UPDATE interacoes SET resumo_card=evidencia")
+        self.conexao.execute('''INSERT INTO interacoes
+            (medicamento_origem,alvo,tipo_alvo,resumo,evidencia,processamento_id,resumo_card)
+            SELECT medicamento_origem,alvo,tipo_alvo,resumo,evidencia || ' Outro trecho.',processamento_id,resumo_card
+            FROM interacoes WHERE medicamento_origem='marevan' ORDER BY id LIMIT 1''')
+        repo = RepositorioReescrita(DSN)
+        try:
+            unidade = next(u for u in unidades_reescrita(repo.fonte('marevan')) if len(u.get('ids', [])) > 1)
+            texto = 'Resumo consolidado conferido nos dois trechos.'
+            controle = {'publicado': {'status': 'CONCLUIDO', 'prompt': VERSAO_REESCRITA,
+                        'entrada_hash': hash_dados(unidade['entrada']), 'texto_hash': hash_dados(texto)}}
+            repo.gravar_reescrita('marevan', unidade, texto, controle)
+            params = {'medicamento': 'marevan', 'tamanho_pagina': 1}
+            corpo = self.cliente.get('/api/interacoes', params=params).json()
+            self.assertEqual(corpo['relacoes'][0]['resumo_card_simples'], texto)
+            # A segunda fonte não está na página, mas invalida o texto conjunto.
+            self.conexao.execute('UPDATE interacoes SET resumo_card=resumo_card || %s WHERE id=%s',
+                                 (' Condição alterada.', unidade['ids'][1]))
+            corpo = self.cliente.get('/api/interacoes', params=params).json()
+            self.assertIsNone(corpo['relacoes'][0]['resumo_card_simples'])
+        finally:
+            repo.fechar()
+
     def gravar(self, nome, relacoes, status=StatusProcessamento.CONCLUIDO_COM_RELACOES, versao="v1"):
         fonte = self.identificacao.selecionar_fontes(nome_normalizado=nome)[0]
         resultado = ResultadoIdentificacao(
@@ -88,6 +115,49 @@ class TestApiPostgresReal(unittest.TestCase):
 
     def test_saude(self) -> None:
         self.assertEqual(self.get("/api/saude")["status"], "ok")
+
+    def test_reescrita_vigente_individual_par_e_invalida_apos_mudar_original_ou_evidencia(self):
+        from psycopg.types.json import Jsonb
+        from pipelines.resumos_interacoes.rastreabilidade import (
+            VERSAO_REESCRITA, entrada_card, entrada_geral, hash_dados,
+        )
+
+        linha = self.conexao.execute("""SELECT i.*,p.hash_trecho,p.sha256_pdf,b.principios_ativos
+            FROM interacoes i JOIN processamentos_interacoes p ON p.id=i.processamento_id
+            JOIN bulas b ON b.nome_normalizado=i.medicamento_origem
+            WHERE i.medicamento_origem='marevan' AND i.alvo='ácido acetilsalicílico'""").fetchone()
+        original = "O ácido acetilsalicílico aumenta o risco de sangramento."
+        linha["resumo_card"] = original
+        simples = "Ácido acetilsalicílico pode aumentar o risco de sangramento."
+
+        def controle(entrada, texto):
+            return Jsonb({"publicado": {"status": "CONCLUIDO", "prompt": VERSAO_REESCRITA,
+                                      "entrada_hash": hash_dados(entrada), "texto_hash": hash_dados(texto)}})
+
+        self.conexao.execute("UPDATE interacoes SET resumo_card=%s,resumo_card_simples=%s,reescrita_controle=%s WHERE id=%s",
+                             (original, simples, controle(entrada_card(linha), simples), linha["id"]))
+        pid = linha["processamento_id"]
+        geral = self.conexao.execute("""SELECT p.*,p.id AS processamento_id,b.principios_ativos
+            FROM processamentos_interacoes p JOIN bulas b ON b.nome_normalizado=p.medicamento_origem
+            WHERE p.id=%s""", (pid,)).fetchone()
+        geral["resumo_geral"] = "A bula de Marevan descreve interações com risco de sangramento."
+        interacoes = self.conexao.execute("SELECT id,alvo,evidencia FROM interacoes WHERE processamento_id=%s ORDER BY id", (pid,)).fetchall()
+        geral_simples = "A bula de Marevan descreve combinações que podem aumentar o risco de sangramento."
+        self.conexao.execute("UPDATE processamentos_interacoes SET resumo_geral=%s,resumo_geral_simples=%s,reescrita_controle=%s WHERE id=%s",
+                             (geral["resumo_geral"], geral_simples, controle(entrada_geral(geral, interacoes), geral_simples), pid))
+        corpo = self.get("/api/interacoes", medicamento="marevan")
+        card = next(r for r in corpo["relacoes"] if r["id"] == linha["id"])
+        self.assertEqual(card["resumo_card_simples"], simples)
+        self.assertEqual(card["resumo_card"], original)
+        self.assertEqual(card["evidencia"], linha["evidencia"])
+        self.assertEqual(corpo["resumo_geral"]["texto_simples"], geral_simples)
+        par = self.get("/api/interacoes/par", medicamento_a="marevan", medicamento_b="aas")
+        self.assertTrue(any(i["resumo_card_simples"] == simples for e in par["evidencias"] for i in e["itens"]))
+        self.conexao.execute("UPDATE interacoes SET resumo_card=resumo_card || ' Condição nova.' WHERE id=%s", (linha["id"],))
+        corpo = self.get("/api/interacoes", medicamento="marevan")
+        self.assertIsNone(next(r for r in corpo["relacoes"] if r["id"] == linha["id"])["resumo_card_simples"])
+        self.conexao.execute("UPDATE interacoes SET evidencia=evidencia || ' Condição nova.' WHERE id=%s", (linha["id"],))
+        self.assertIsNone(self.get("/api/interacoes", medicamento="marevan")["resumo_geral"]["texto_simples"])
 
     def test_autocomplete_prioriza_prefixo_acentos_e_escapa_curinga(self) -> None:
         nomes = [s["nome_normalizado"] for s in self.get("/api/medicamentos/sugestoes", q="AS")["sugestoes"]]

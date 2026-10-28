@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
+import { PreparacaoMedicamento, type ContextoPreparacao } from '@/components/preparacao-medicamento'
 import { cn } from "@/lib/utils"
 import {
   api, ehCancelamento, ErroApi,
@@ -26,6 +27,8 @@ import { citaParteDoComposto, ligacoesDoPar, paresDeMedicamentos, type Ligacao }
 const TAMANHO_PAGINA = 50
 // Máximo aceito pela API (API_AUTOCOMPLETE_LIMITE_MAXIMO).
 const LIMITE_SUGESTOES = 20
+// Preserva o fluxo experimental, desativado enquanto a coleta externa não estiver disponível.
+const INCLUSAO_HABILITADA = process.env.NEXT_PUBLIC_INCLUSAO_MEDICAMENTOS === 'true'
 const MEDICAMENTO_AUSENTE = 'Medicamento não encontrado entre os disponíveis para consulta. Verifique o nome ou selecione uma sugestão.'
 /** Trecho em uma linha, sem o marcador de lista do PDF no início. */
 const compactar = (texto: string) =>
@@ -444,9 +447,9 @@ function VistaMedicamento({ resultado, onMais, onEvidence }: {
         </CardContent>
         <CardContent className="space-y-4 border-t pt-5">
           <h2 className="text-sm font-semibold">Interações na bula de {nome}</h2>
-          {dados.resumo_geral?.texto ? (
+          {(dados.resumo_geral?.texto_simples || dados.resumo_geral?.texto) ? (
             <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
-              {dados.resumo_geral.texto.split(/\n\s*\n/).map((paragrafo, indice) => <p key={indice}>{paragrafo}</p>)}
+              {(dados.resumo_geral.texto_simples || dados.resumo_geral.texto || "").split(/\n\s*\n/).map((paragrafo, indice) => <p key={indice}>{paragrafo}</p>)}
               <p className="text-xs">Resumo das interações identificadas nesta bula. Confira os trechos originais em “Ver evidência”.</p>
             </div>
           ) : (
@@ -471,7 +474,7 @@ function VistaMedicamento({ resultado, onMais, onEvidence }: {
               const relacionados = relacionadosDe(grupo)
               const citacoes = citacoesUnicas(grupo)
               const resumos = [...new Map(grupo.map((item) => {
-                const texto = item.resumo_card || item.resumo
+                const texto = item.resumo_card_simples || item.resumo_card || item.resumo
                 return [chaveCitacao(texto), texto]
               })).values()]
               return (
@@ -533,7 +536,7 @@ function VistaPar({ dados, onEvidence }: { dados: RespostaPar; onEvidence: (deta
   const cartao = (trechos: EvidenciaPar[]) => {
     const origens = [...new Set(trechos.map((ev) => nomeLegivel(ev.fonte.medicamento.nome_exibicao)))]
     const resumos = [...new Map(trechos.flatMap((ev) => ev.itens).map((item) => {
-      const texto = item.resumo_card || item.resumo
+      const texto = item.resumo_card_simples || item.resumo_card || item.resumo
       return [chaveCitacao(texto), texto]
     })).values()]
     const ligacoes = ligacoesDoPar(dados, trechos)
@@ -705,17 +708,26 @@ export default function InteraMed() {
   const [compareOn, setCompareOn] = React.useState(false)
   const [estado, setEstado] = React.useState<Estado>({ tipo: "inicio" })
   const [evidencia, setEvidencia] = React.useState<DetalheEvidencia | null>(null)
+  const [preparacao, setPreparacao] = React.useState<ContextoPreparacao | null>(null)
   const controle = React.useRef<AbortController | null>(null)
   const controleMais = React.useRef<AbortController | null>(null)
 
   const escolherA = (m: Medicamento) => { setSelecionado(m); setTexto(nomeLegivel(m.nome_exibicao)) }
+
+  const prepararNome = (nome: string, destino: 'consulta' | 'comparado' = 'consulta') => {
+    const outros = destino === 'consulta' && compareOn
+      ? [...comparados.map((m) => m.nome_normalizado), ...(textoComparacao.trim() ? [textoComparacao.trim()] : [])] : []
+    setPreparacao({ chave: crypto.randomUUID(), nomes: [nome, ...outros], destino, comparar: outros.length > 0 })
+    setEstado({ tipo: 'inicio' })
+  }
 
   const adicionarComparado = async (escolhido?: Medicamento) => {
     try {
       const medicamento = escolhido ?? await resolver(textoComparacao, null, new AbortController().signal)
       if (!medicamento) {
         if (textoComparacao.trim()) {
-          setErroComparacao(MEDICAMENTO_AUSENTE)
+          if (INCLUSAO_HABILITADA) { prepararNome(textoComparacao.trim(), 'comparado'); setErroComparacao(null) }
+          else setErroComparacao(MEDICAMENTO_AUSENTE)
         }
         return
       }
@@ -751,7 +763,8 @@ export default function InteraMed() {
     try {
       const a = escolhidos.medicamentos?.[0] ?? escolhidos.a ?? await resolver(texto, selecionado, atual.signal)
       if (!a) {
-        setEstado({ tipo: 'erro', mensagem: MEDICAMENTO_AUSENTE, semConexao: false })
+        if (INCLUSAO_HABILITADA) prepararNome(texto.trim())
+        else setEstado({ tipo: 'erro', mensagem: MEDICAMENTO_AUSENTE, semConexao: false })
         return
       }
       escolherA(a)
@@ -760,8 +773,11 @@ export default function InteraMed() {
       if (comparar && !escolhidos.medicamentos) {
         const pendente = await resolver(textoComparacao, null, atual.signal)
         if (textoComparacao.trim() && !pendente) {
-          setErroComparacao(MEDICAMENTO_AUSENTE)
-          setEstado({ tipo: 'erro', mensagem: MEDICAMENTO_AUSENTE, semConexao: false })
+          if (INCLUSAO_HABILITADA) prepararNome(a.nome_normalizado)
+          else {
+            setErroComparacao(MEDICAMENTO_AUSENTE)
+            setEstado({ tipo: 'erro', mensagem: MEDICAMENTO_AUSENTE, semConexao: false })
+          }
           return
         }
         medicamentos = [a, ...comparados, ...(pendente ? [pendente] : [])]
@@ -870,7 +886,7 @@ export default function InteraMed() {
                 id="med" value={texto} selected={selecionado} placeholder="Digite o medicamento (ex.: Marevan)"
                 onChange={(v) => { setTexto(v); setSelecionado(null) }}
                 onSelect={escolherA} onSubmit={(m) => { if (!compareOn) void buscar({ a: m }) }}
-                orientacaoAusente={MEDICAMENTO_AUSENTE}
+                orientacaoAusente={INCLUSAO_HABILITADA ? "Este medicamento ainda não está disponível. Clique em Consultar interações para buscar a bula e preparar os resultados." : MEDICAMENTO_AUSENTE}
               />
               <Button className="h-11 bg-blue-600 px-5 hover:bg-blue-700" onClick={() => void buscar()} disabled={estado.tipo === "carregando"}>
                 {estado.tipo === "carregando" ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}Consultar interações
@@ -897,7 +913,7 @@ export default function InteraMed() {
                     id="cmp" value={textoComparacao} selected={null} placeholder="Adicione outro medicamento para verificar interações"
                     onChange={(v) => { setTextoComparacao(v); setErroComparacao(null) }}
                     onSelect={() => {}} onSubmit={(m) => void adicionarComparado(m)}
-                    orientacaoAusente={MEDICAMENTO_AUSENTE}
+                    orientacaoAusente={INCLUSAO_HABILITADA ? "Este medicamento ainda não está disponível. Clique em Adicionar para buscar a bula e preparar os resultados." : MEDICAMENTO_AUSENTE}
                   />
                   <Button variant="outline" className="h-11" onClick={() => void adicionarComparado()} disabled={!textoComparacao.trim()}>Adicionar</Button>
                 </div>
@@ -914,6 +930,19 @@ export default function InteraMed() {
           </CardFooter>
         </Card>
 
+        {INCLUSAO_HABILITADA && <PreparacaoMedicamento contexto={preparacao} onEncerrar={() => setPreparacao(null)}
+          onConcluido={(medicamentos, contexto) => {
+            setPreparacao(null)
+            if (contexto.destino === 'comparado') {
+              setComparados((atuais) => [...new Map([...atuais, ...medicamentos].map((m) => [m.nome_normalizado, m])).values()])
+              setTextoComparacao(''); setErroComparacao(null)
+            } else {
+              setCompareOn(contexto.comparar)
+              escolherA(medicamentos[0])
+              if (contexto.comparar) { setComparados(medicamentos.slice(1)); setTextoComparacao('') }
+              void buscar({ medicamentos, comparar: contexto.comparar })
+            }
+          }} />}
 
         {estado.tipo === "carregando" && (
           <div className="mt-7 space-y-3">

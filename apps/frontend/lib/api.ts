@@ -72,6 +72,7 @@ export interface Relacao {
   tipo_alvo: TipoAlvo
   resumo: string
   resumo_card: string | null
+  resumo_card_simples?: string | null
   evidencia: string
   fonte: FonteBula
   processamento: Processamento
@@ -107,6 +108,7 @@ export interface RespostaInteracoes {
   resumo_geral: {
     status: "CONCLUIDO" | "PENDENTE"
     texto: string | null
+    texto_simples?: string | null
     gerado_em: string | null
     processamento_id: number | null
   }
@@ -119,6 +121,7 @@ export interface ItemPar {
   tipo_alvo: TipoAlvo
   resumo: string
   resumo_card: string | null
+  resumo_card_simples?: string | null
   criterio_vinculo: CriterioVinculo | null
   /** Texto do cadastro que fundamentou o vínculo (ex.: o princípio ativo "paracetamol"). */
   fundamento_vinculo?: string | null
@@ -154,12 +157,14 @@ export class ErroApi extends Error {
   }
 }
 
-async function consultar<T>(caminho: string, parametros: Record<string, string | number>, sinal?: AbortSignal): Promise<T> {
+async function consultar<T>(caminho: string, parametros: Record<string, string | number>, sinal?: AbortSignal, corpo?: object): Promise<T> {
   const url = new URL(`${API_URL}/api${caminho}`)
   for (const [chave, valor] of Object.entries(parametros)) url.searchParams.set(chave, String(valor))
   let resposta: Response
   try {
-    resposta = await fetch(url, { signal: sinal, headers: { Accept: "application/json" } })
+    resposta = await fetch(url, { signal: sinal, method: corpo ? 'POST' : 'GET',
+      headers: { Accept: 'application/json', ...(corpo ? { 'Content-Type': 'application/json' } : {}) },
+      body: corpo ? JSON.stringify(corpo) : undefined, cache: 'no-store' })
   } catch (erro) {
     if (erro instanceof DOMException && erro.name === "AbortError") throw erro
     throw new ErroApi(0, `Não foi possível conectar à API em ${API_URL}. Verifique se ela está em execução.`)
@@ -178,6 +183,12 @@ async function consultar<T>(caminho: string, parametros: Record<string, string |
 }
 
 export const api = {
+  solicitar: (nome: string, sinal?: AbortSignal) =>
+    consultar<Solicitacao>('/processamentos', {}, sinal, { nome }),
+  andamento: (id: string, sinal?: AbortSignal) =>
+    consultar<Solicitacao>(`/processamentos/${encodeURIComponent(id)}`, {}, sinal),
+  selecionarAnvisa: (id: string, nome: string, sinal?: AbortSignal) =>
+    consultar<Solicitacao>(`/processamentos/${encodeURIComponent(id)}/selecao`, {}, sinal, { nome_normalizado: nome }),
   sugestoes: (termo: string, limite = 8, sinal?: AbortSignal) =>
     consultar<{ termo: string; sugestoes: Medicamento[] }>("/medicamentos/sugestoes", { q: termo, limite }, sinal),
   interacoes: (nome: string, pagina = 1, tamanhoPagina = 50, sinal?: AbortSignal) =>
@@ -187,3 +198,13 @@ export const api = {
 }
 
 export const ehCancelamento = (erro: unknown) => erro instanceof DOMException && erro.name === "AbortError"
+
+export interface Solicitacao {
+  id: string | null
+  nome_solicitado: string
+  nome_confirmado: string | null
+  estado: 'AGUARDANDO' | 'EM_PROCESSAMENTO' | 'AGUARDANDO_SELECAO' | 'CONCLUIDO' | 'NAO_ENCONTRADO' | 'FALHA' | 'REVISAO_NECESSARIA'
+  etapa: string
+  mensagem: string
+  opcoes: { nome_normalizado: string; nome_produto: string; numero_registro: string; data_publicacao: string }[]
+}

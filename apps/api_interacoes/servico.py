@@ -287,6 +287,7 @@ class ServicoConsulta:
                     tipo_alvo=linha["tipo_alvo"],
                     resumo=linha["resumo"],
                     resumo_card=linha.get("resumo_card"),
+                    resumo_card_simples=linha.get("resumo_card_simples"),
                     evidencia=linha["evidencia"],
                     fonte=_fonte(linha, origem),
                     processamento=_processamento(linha),
@@ -376,6 +377,7 @@ class ServicoConsulta:
                     tipo_alvo=linha["tipo_alvo"],
                     resumo=linha["resumo"],
                     resumo_card=linha.get("resumo_card"),
+                    resumo_card_simples=linha.get("resumo_card_simples"),
                     criterio_vinculo=linha.get("criterio_vinculo"),
                     fundamento_vinculo=(
                         linha.get("fundamento_vinculo") if linha.get("criterio_vinculo") is not None else None

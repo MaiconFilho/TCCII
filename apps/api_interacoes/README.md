@@ -3,18 +3,36 @@
 API HTTP em FastAPI com Pydantic, com consultas somente de leitura sobre as tabelas gravadas
 por [`identificacao_interacoes`](../../pipelines/identificacao_interacoes/README.md).
 
-A API consulta somente dados persistidos. Nomes ausentes retornam HTTP 404;
-nenhum endpoint dispara scraping, geração de resumos ou escrita no banco.
+**Inclusão suspensa:** `API_INCLUSAO_MEDICAMENTOS=false` por padrão. A API não
+inicia o trabalhador e os endpoints de preparação retornam 503 antes de acessar
+a fila. As consultas de medicamentos cadastrados continuam funcionando. O código
+experimental foi preservado; veja o [histórico e a configuração](../../pipelines/inclusao_medicamentos/README.md).
+
+Quando habilitada, a única escrita nova é na fila de preparação de medicamentos. A API não executa
+os pipelines. O [trabalhador separado](../../pipelines/inclusao_medicamentos/README.md)
+é iniciado automaticamente pela API e executa a inclusão sob demanda;
+`SOLICITACOES_DATABASE_URL` permite uma conexão
+de escrita distinta do pool de consultas, que continua somente de leitura.
 
 - Não carrega modelos, não abre Selenium, não executa inferência nem
   migrações. Um teste confere que iniciar a API não importa `llama_cpp`,
   `torch`, `transformers`, PyMuPDF, Selenium nem os módulos de extração.
+- Quando vários registros formam um card consolidado, a vigência considera
+  os originais e as evidências de todo o grupo, inclusive fora da página
+  consultada. As evidências literais continuam retornando separadamente.
+- Após atualizar os módulos de rastreabilidade ou a API, reinicie seu processo.
+  Uma instância antiga pode rejeitar as publicações da nova versão e retornar
+  os resumos originais, mesmo que a reescrita já tenha concluído.
 - Conexões com `default_transaction_read_only=on` e `statement_timeout`; SQL
   sempre parametrizado; erros sem credenciais, caminhos ou detalhes internos.
-- O esquema vem das migrações de `pipelines/identificacao_interacoes/migracoes/` (001 a
-  005, aditivas; 004/005 acrescentam os campos e o controle dos resumos). Se as tabelas ou views de consulta não existirem, `/api/saude`
+- O backup de distribuição já contém as tabelas, views e colunas de reescrita
+  necessárias à consulta. Os SQLs 004/005 versionados registram a etapa original
+  dos resumos. Se as tabelas ou views de consulta não existirem, `/api/saude`
   informa `esquema: ausente` e as consultas respondem 503 — a API não cria
-  nada. Aplique com `python -m pipelines.identificacao_interacoes.aplicar_migracoes`.
+  nada. Para esta publicação, restaure o backup conforme seu guia, sem executar
+  novas migrações no banco já preparado.
+  A ausência da fila afeta os endpoints de preparação, sem alterar os endpoints
+  GET de consulta já existentes.
 
 ```text
 rotas.py         endpoints e validação de parâmetros
@@ -44,6 +62,13 @@ apps\api_interacoes\.venv\Scripts\python -m apps.api_interacoes
 Documentação interativa: `http://127.0.0.1:8000/docs` (OpenAPI em
 `/openapi.json`).
 
+Com a inclusão habilitada, não é necessário outro terminal para ela. O processo da API inicia o módulo
+existente `pipelines.inclusao_medicamentos` em segundo plano, usando por padrão o
+Python da `.venv` de extração. Ele consulta a fila e chama os pipelines separados.
+`API_WORKER_PYTHON` configura outro Python; `API_WORKER_DATABASE_URL` configura
+as permissões de escrita dos pipelines na mesma base da fila. Em implantação com
+trabalhador externo, defina `API_WORKER_AUTOSTART=false` na API. Dependências,
+logs, retomada e configuração estão no [guia da inclusão](../../pipelines/inclusao_medicamentos/README.md).
 
 ## Endpoints
 
@@ -53,7 +78,17 @@ Documentação interativa: `http://127.0.0.1:8000/docs` (OpenAPI em
 | `GET /api/medicamentos/sugestoes?q=&limite=` | autocomplete sem LLM |
 | `GET /api/interacoes?medicamento=&pagina=&tamanho_pagina=` | interações de um medicamento |
 | `GET /api/interacoes/par?medicamento_a=&medicamento_b=` | relações entre dois medicamentos |
+| `POST /api/processamentos` | solicita inclusão por nome; 202 com UUID ou 200 se já cadastrado |
+| `GET /api/processamentos/{uuid}` | andamento e alternativas encontradas |
+| `POST /api/processamentos/{uuid}/selecao` | confirma uma alternativa retornada pela Anvisa |
 
+Os três endpoints de preparação estão suspensos por padrão e respondem 503 sem
+consultar ou escrever na fila. A descrição a seguir vale quando a inclusão é habilitada.
+A decisão de inclusão fica na API: o POST reutiliza uma solicitação ativa ou
+confere apenas a existência do nome em `bulas`. Não verifica a conclusão de todos
+os pipelines de um cadastro existente. Uma nova solicitação começa diretamente
+pela consulta à Anvisa com o nome pesquisado. Os controles posteriores servem à
+retomada da própria solicitação, não ao reprocessamento automático da base.
 
 ### Autocomplete
 
@@ -247,8 +282,27 @@ do Bulário (com expiração), não um identificador permanente do PDF.
 | `API_POOL_MINIMO` / `_MAXIMO` | `1` / `4` | Pool psycopg. |
 | `API_TEMPO_LIMITE_CONSULTA_MS` | `5000` | `statement_timeout`. |
 | `API_CACHE_COBERTURA_SEGUNDOS` | `60` | Cache do resumo de cobertura. |
+| `API_WORKER_AUTOSTART` | `true` | Inicia o trabalhador em processo separado. |
+| `API_WORKER_PYTHON` | `.venv` de extração, se existir | Python com as dependências dos pipelines. |
+| `API_WORKER_DATABASE_URL` | `.env` do trabalhador, depois fila/API | Conexão dos pipelines, na mesma base da fila. |
 
 ## Testes
+
+### Resumos simplificados persistidos
+
+As colunas de reescrita, correspondentes à etapa 007, já existem no banco de
+publicação e no backup distribuído. Esta atualização não cria nem altera
+migrações. `resumo_card_simples` e `resumo_geral.texto_simples`
+são campos opcionais na resposta, separados dos textos originais. Só são
+retornados quando o controle de publicação corresponde ao hash das entradas
+atuais, ao texto salvo e à versão do prompt/validação. Alterar o resumo original,
+a evidência, o processamento ou a versão da fonte invalida a simplificação.
+
+A conexão permanece somente leitura. Nenhuma requisição executa inferência,
+importa o runtime do LLM ou modifica a base. A geração é uma etapa offline:
+[instruções da reescrita](../../pipelines/resumos_interacoes/README.md#reescrita-em-linguagem-simples-segunda-etapa).
+
+### Executar
 
 ```cmd
 cd C:\Users\Desenvolvimento\Desktop\TCC\TCCII
