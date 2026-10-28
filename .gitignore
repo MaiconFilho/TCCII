@@ -69,6 +69,8 @@ apps/api_interacoes/relatorios/
 apps/api_interacoes/logs/
 pipelines/resumos_interacoes/relatorios/
 pipelines/resumos_interacoes/logs/
+pipelines/inclusao_medicamentos/logs/
+pipelines/inclusao_medicamentos/relatorios/
 
 # Artefatos locais; somente o backup de distribuicao revisado e versionado.
 backups_banco/*

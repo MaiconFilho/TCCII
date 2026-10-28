@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS bulas_interacoes_embeddings (
     quantidade_tokens INTEGER,
     embedding VECTOR({dimensao}) NOT NULL,
     atualizado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ativo BOOLEAN NOT NULL DEFAULT true,
+    fonte_sha256 TEXT,
+    total_chunks_fonte INTEGER,
 
     CONSTRAINT fk_embeddings_bula_interacao
         FOREIGN KEY (nome_normalizado)
@@ -334,6 +337,7 @@ class RepositorioEmbeddings:
         nome_normalizado: str,
         dimensao: int,
         chunks: list[EmbeddingChunk],
+        *, preservar_sobras: bool = False,
     ) -> int:
         """Grava todos os chunks em uma única transação.
 
@@ -375,6 +379,11 @@ class RepositorioEmbeddings:
             WHERE nome_normalizado = %s
               AND chunk_index > %s
         """
+        if preservar_sobras:
+            # Inclusão sob demanda preserva registros de chunks de fontes anteriores.
+            comando = comando.replace('atualizado_em = CURRENT_TIMESTAMP',
+                                      'atualizado_em = CURRENT_TIMESTAMP, ativo = true')
+            remocao = f'UPDATE {TABELA} SET ativo = false WHERE nome_normalizado = %s AND chunk_index > %s'
 
         try:
             with self.conexao.transaction():

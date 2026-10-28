@@ -23,7 +23,7 @@ from .erros import (
     SemBulaProfissionalError,
 )
 from .modelos import BulaLocalizada, MedicamentoParaColeta
-from .planilha import normalizar_nome
+from .normalizacao import normalizar_nome
 
 
 BASE_URL = "https://consultas.anvisa.gov.br"
@@ -48,7 +48,6 @@ fetch(url, {
   .then(async (resposta) => done({
     status: resposta.status,
     contentType: resposta.headers.get("content-type") || "",
-    retryAfter: resposta.headers.get("retry-after") || "",
     body: await resposta.text()
   }))
   .catch((erro) => done({status: 0, error: String(erro)}));
@@ -78,7 +77,6 @@ fetch(url, {
     done({
       status: resposta.status,
       contentType: resposta.headers.get("content-type") || "",
-      retryAfter: resposta.headers.get("retry-after") || "",
       base64: btoa(binario)
     });
   })
@@ -106,8 +104,29 @@ def _interpretar_retry_after(valor: object) -> float | None:
 
 
 def _validar_status(resposta: dict[str, Any], operacao: str) -> None:
+    if resposta.get('codigo') == 'VALIDACAO_SESSAO':
+        raise BloqueioAnvisaError('Não foi possível concluir a validação da sessão pública do Bulário. A consulta foi interrompida.')
     status = int(resposta.get("status") or 0)
     if status == 403:
+        # O interceptor público pode rejeitar a validação sem enviar a consulta.
+        # Registra somente o código conhecido, nunca tokens, cookies ou HTML.
+        try:
+            corpo = json.loads(resposta.get('body') or '{}')
+        except (ValueError, TypeError):
+            corpo = {}
+        codigo = corpo.get('codigo') if isinstance(corpo, dict) else None
+        codigos_validacao = {
+            'turnstile_falhou', 'turnstile_erro', 'turnstile_expirado',
+            'turnstile_timeout', 'turnstile_token_vazio', 'turnstile_execucao_erro',
+            'turnstile_indisponivel', 'turnstile_sem_site_key',
+        }
+        if isinstance(codigo, str) and codigo in codigos_validacao:
+            erro = BloqueioAnvisaError(
+                f'A validação de segurança Cloudflare do Bulário não foi concluída durante {operacao} '
+                f'(código: {codigo}). A consulta foi interrompida sem novas tentativas.'
+            )
+            erro.codigo_validacao = codigo
+            raise erro
         raise BloqueioAnvisaError(
             f"A Anvisa respondeu HTTP {status} durante {operacao}. "
             "A execução foi interrompida para não insistir no bloqueio."
@@ -121,9 +140,11 @@ def _validar_status(resposta: dict[str, Any], operacao: str) -> None:
         )
     if status != 200:
         detalhe = resposta.get("error") or resposta.get("body", "")[:300]
-        raise RespostaAnvisaError(
+        erro = RespostaAnvisaError(
             f"Falha durante {operacao}: HTTP {status}. Detalhe: {detalhe}"
         )
+        erro.status_http = status
+        raise erro
 
 
 def montar_url_consulta(nome_produto: str, pagina: int = 1) -> str:
@@ -204,10 +225,10 @@ def _chave_desempate(item: dict[str, Any]) -> tuple[str, str]:
     )
 
 
-def consultar_mais_recente_por_nome(
+def consultar_resultados_por_nome(
     navegador: WebDriver,
     medicamento: MedicamentoParaColeta,
-) -> BulaLocalizada:
+) -> list[dict[str, Any]]:
     primeira_pagina = _consultar_pagina(navegador, medicamento, 1)
     try:
         total_paginas = max(1, int(primeira_pagina.get("totalPages") or 1))
@@ -225,10 +246,18 @@ def consultar_mais_recente_por_nome(
         else:
             time.sleep(INTERVALO_ENTRE_PAGINAS_SEGUNDOS)
             dados = _consultar_pagina(navegador, medicamento, pagina)
-        conteudo = dados.get("content") or []
+        conteudo = dados.get("content")
         if not isinstance(conteudo, list):
             raise RespostaAnvisaError("O campo 'content' da consulta não é uma lista.")
+        if any(not isinstance(item, dict) for item in conteudo):
+            raise RespostaAnvisaError('A consulta retornou itens sem estrutura de medicamento.')
         resultados.extend(item for item in conteudo if isinstance(item, dict))
+
+    return resultados
+
+
+def selecionar_mais_recente(resultados, medicamento) -> BulaLocalizada:
+    """Mesmas regras do lote, aplicáveis também a uma consulta fora da planilha."""
 
     exatos = [
         item
@@ -282,6 +311,33 @@ def consultar_mais_recente_por_nome(
         data_publicacao=data_publicacao,
         id_produto=_somente_digitos(resultado.get("idProduto")),
     )
+
+
+def consultar_mais_recente_por_nome(navegador, medicamento) -> BulaLocalizada:
+    return selecionar_mais_recente(consultar_resultados_por_nome(navegador, medicamento), medicamento)
+
+
+def consultar_opcoes_por_nome(navegador, medicamento) -> list[BulaLocalizada]:
+    """Nome exato tem preferência; alternativas nunca são escolhidas por semelhança."""
+    resultados = consultar_resultados_por_nome(navegador, medicamento)
+    nomes = {normalizar_nome(item.get("nomeProduto")) for item in resultados}
+    nomes.discard("")
+    if medicamento.nome_normalizado in nomes:
+        return [selecionar_mais_recente(resultados, medicamento)]
+    if not nomes:
+        if resultados:
+            raise RespostaAnvisaError("Resultados sem identificação de medicamento.")
+        raise MedicamentoNaoEncontradoError("Consulta concluída sem resultados.")
+    # Inclui somente alternativas com bula profissional e data válida.
+    opcoes = []
+    for nome in sorted(nomes):
+        try:
+            opcoes.append(selecionar_mais_recente(resultados, MedicamentoParaColeta(nome, nome)))
+        except (SemBulaProfissionalError, DataPublicacaoInvalidaError):
+            continue
+    if not opcoes:
+        raise SemBulaProfissionalError("Os resultados não possuem bula profissional com data válida.")
+    return opcoes
 
 
 def baixar_pdf(

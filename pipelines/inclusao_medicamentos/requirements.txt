@@ -1,0 +1,4 @@
+# Ambiente completo do trabalhador. A API mantém seus requirements independentes.
+-r ../scraping_anvisa/requirements.txt
+-r ../extracao_interacoes/requirements.txt
+-r ../conversao_interacoes_vetores/requirements.txt
