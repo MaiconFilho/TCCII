@@ -356,7 +356,7 @@ campos. O Qwen2.5 da primeira etapa permanece inalterado.
 4. O prompt em `prompts.py` (`INSTRUCOES_REESCRITA`) pede linguagem simples e
    JSON com `status`, `texto` e `motivo`. O contrato completo é esse texto do código;
    a versão conjunta do prompt e das verificações está em
-   `rastreabilidade.VERSAO_REESCRITA` (`linguagem-simples/35`).
+   `rastreabilidade.VERSAO_REESCRITA` (`linguagem-simples/36`).
 5. Validações independentes da opinião do modelo procuram alterações de direção,
    papéis em construções explícitas, incerteza, negação, restrições, doses, vias,
    condições, gravidade e orientações acrescentadas. JSON vazio, repetido,
@@ -453,6 +453,50 @@ concluídos, somente as unidades ainda sem publicação salva são executadas.
 Refazer publicações existentes exige `--reprocessar` explicitamente.
 A conferência de fonte e hashes para exibição na API continua separada: um
 resultado desatualizado não é apresentado como se correspondesse à fonte nova.
+
+### Versão 36: referência focada, seleção em lote e reconexão
+
+- **Referência focada no alvo.** Na reconstrução, cada evidência é recortada
+  para o item ou as orações do alvo (`contexto.referencia_do_alvo`): rótulos
+  `nome:` no início da linha ou depois de um ponto, marcadores `•`/`-`, um
+  cabeçalho que introduz a lista e blocos `Medicamentos:`/`Efeito da interação:`
+  inteiros. O mesmo recorte monta o prompt e todas as conferências
+  (`validacao.referencia_da_reconstrucao`). Se o recorte for ambíguo, vale o
+  bloco inteiro. O resumo geral usa o recorte de cada bloco para os seus alvos.
+- **Frase cortada.** Uma evidência que termina no meio da frase, como
+  `(vide item 8.`, é completada com o trecho literal da mesma bula somente
+  quando o complemento é único, curto e não entra em outro item. No efeito
+  comum, a remissão completada aparece como seção `"4. Contraindicações"`.
+- **Números.** Marcadores de página (`-27-`), o rodapé `(Profissional) –
+  06/2026`, remissões sem a palavra item (`vide 4.`, inclusive cortadas) e
+  `item 5`/`seção 4` sem o verbo (como na frase de remissão do efeito comum)
+  não contam como quantidades; `70 mg por metro quadrado` equivale a
+  `70 mg/m2`. Doses com unidade, percentuais, durações e frequências
+  continuam obrigatórios.
+- **Condição nova.** Quando a referência traz o alvo numa lista ("como
+  rifampicina, efavirenz, nevirapina…"), a saída que o tira dela ("com
+  efavirenz em crianças que recebem rifampicina, nevirapina…") é recusada:
+  passaria a exigir um segundo medicamento.
+- **Alvo e sinônimos.** A menção ao alvo aceita os nomes e princípios ativos
+  ligados a ele por `interacoes_medicamentos` (somente bulas de um princípio
+  ativo) e as formas sem sal de `resolucao`.
+- **Vocabulário.** No acabamento, `coadministr*` e `clearance` são trocados por
+  "usado em conjunto"/"utilização em conjunto" e "retirada do sangue"/
+  "eliminação pelos rins", com concordância simples; o texto final é validado
+  de novo. "Clearance de creatinina" não é trocado.
+- **Seleção em lote.** `RepositorioReescrita.selecionar` faz duas consultas
+  (bulas vigentes e cards) e decide em memória com `unidades_reescrita`, na
+  mesma ordem. Os cards só são lidos das bulas cujo resumo geral já não as
+  torna pendentes. `fonte()` continua sendo lida por bula, dentro do lock.
+- **Queda de conexão.** Um erro de conexão (sem SQLSTATE, classe 08 ou
+  encerramento do servidor) é registrado como `ERRO_CONEXAO`, interrompe a
+  bula, reconecta (até 3 tentativas, espera de 5, 10 e 20 s) e retoma a mesma
+  bula pelas unidades pendentes, sem refazer a seleção. Esgotadas as
+  tentativas, o processo termina com código 4. `FONTE_ALTERADA_OU_ERRO_BANCO`
+  fica para fonte alterada e demais erros de gravação.
+
+`entrada` e `entrada_hash` não mudam: o recorte e o trecho da bula são só
+referências internas. Publicações das versões 25 a 35 continuam compatíveis.
 
 ### Prompts e correção automática
 
