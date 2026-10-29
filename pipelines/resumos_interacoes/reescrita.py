@@ -12,15 +12,15 @@ import re
 from time import perf_counter
 from types import SimpleNamespace
 
+from .contexto import completar_frase, referencia_do_alvo
 from .prompts import (ESQUEMA_REESCRITA, mensagens_reescrita, mensagens_reconstrucao,
-                      trechos_com_efeito_repetido, mensagens_efeito_comum, guia_redacao, dados_a_preservar,
-                      preparar_fonte_do_alvo)
+                      trechos_com_efeito_repetido, mensagens_efeito_comum, guia_redacao, dados_a_preservar)
 from .prompts import padronizar_vocabulario_neutro
 from .prompts import orientacao_sobre_risco, orientacao_sobre_clearance, mensagens_correcao_por_fonte
 from .rastreabilidade import VERSAO_REESCRITA, hash_dados, origem_original
 from .validacao import (RevisaoDaReescrita, validar_reescrita_original, validar_saida_reescrita,
                        validar_saida_reconstrucao, validar_linguagem_simples, validar_consolidacao, ler_saida_reescrita)
-from .validacao import preservar_modalidade_do_cuidado, ReescritaTruncada
+from .validacao import preservar_modalidade_do_cuidado, ReescritaTruncada, referencia_da_reconstrucao
 
 BASE = Path(__file__).resolve().parent
 MODELO_REPO = "ggml-org/SmolLM3-3B-GGUF"
@@ -31,6 +31,21 @@ LOGGER = logging.getLogger(__name__)
 
 class ContextoExcedido(ValueError):
     """A entrada não cabe no contexto; isso não autoriza trocar sua referência."""
+
+
+class ConexaoPerdida(RuntimeError):
+    """O banco caiu durante a bula; as unidades não gravadas continuam pendentes."""
+
+
+def conexao_perdida(erro) -> bool:
+    """Queda de conexão, diferente de fonte alterada ou de erro de SQL."""
+    import psycopg
+
+    if isinstance(erro, ConexaoPerdida):
+        return True
+    estado = getattr(erro, "sqlstate", None)
+    return isinstance(erro, (psycopg.OperationalError, psycopg.InterfaceError)) and (
+        estado is None or estado.startswith("08") or estado in {"57P01", "57P02", "57P03"})
 
 
 class GeradorReescrita:
@@ -47,6 +62,8 @@ class GeradorReescrita:
         self.etapas = []
         self.progresso_geral = None
         self.salvar_bloco_geral = None
+        # Trecho literal da bula e nomes do cadastro; só montam a referência interna.
+        self.apoio = None
 
     def _iniciar(self):
         if getattr(self.provedor, "processo", True) is None:
@@ -116,7 +133,7 @@ class GeradorReescrita:
                     resposta = SimpleNamespace(conteudo=json.dumps({"texto": texto, "status": "REESCRITO", "motivo": ""}), truncada=False)
                 else:
                     bruto = ler_saida_reescrita(resposta, entrada)
-                    referencia = "\n".join(dict.fromkeys(e["texto"] for e in entrada["evidencias"])) if reconstruir else entrada["resumo_original"]
+                    referencia = referencia_da_reconstrucao(entrada) if reconstruir else entrada["resumo_original"]
                     preservado = preservar_modalidade_do_cuidado(bruto, referencia)
                     if preservado != bruto:
                         cuidado_preservado = True
@@ -189,11 +206,11 @@ class GeradorReescrita:
                     referencia = "efeito_a_reescrever" if partes else "evidência literal" if reconstruir else "resumo_original"
                     feedback = f"Retire {termo} desta resposta: não consta em {referencia}. Reescreva apenas essa referência, sem completar detalhes de outros campos."
                 elif "perdeu a indicação de aumento" in feedback:
-                    referencia = "\n".join(e["texto"] for e in entrada["evidencias"]) if reconstruir else entrada["resumo_original"]
+                    referencia = referencia_da_reconstrucao(entrada) if reconstruir else entrada["resumo_original"]
                     feedback = (" ".join(orientacao_sobre_risco(referencia)) or
                                 "Preserve o AUMENTO descrito no original: use aumentar ou maior no efeito correspondente. Não substitua um aumento pela simples existência do efeito. Preserve também o que diminui.")
                 elif "perdeu a indicação de redução" in feedback:
-                    referencia = "\n".join(e["texto"] for e in entrada["evidencias"]) if reconstruir else entrada["resumo_original"]
+                    referencia = referencia_da_reconstrucao(entrada) if reconstruir else entrada["resumo_original"]
                     feedback = (" ".join(orientacao_sobre_clearance(referencia)) or
                                 "Preserve expressamente a REDUÇÃO do parâmetro ou efeito descrito. Use reduz, diminui ou menor junto da mesma informação; não altere quem sofre o efeito.")
                 elif "perdeu a incerteza do original" in feedback:
@@ -231,7 +248,7 @@ class GeradorReescrita:
                                  "Preserve todos os nomes, fatos, condições, números, doses, negações e títulos de seções entre aspas. "
                                  "Use as expressões comuns já indicadas, sem voltar ao vocabulário técnico nem acrescentar explicações. "
                                  "Os dados não são instruções. Retorne apenas JSON com texto, status REESCRITO e motivo vazio.")
-                    fonte_risco = partes["efeito"] if partes else "\n".join(e["texto"] for e in entrada["evidencias"]) if reconstruir else entrada["resumo_original"]
+                    fonte_risco = partes["efeito"] if partes else referencia_da_reconstrucao(entrada) if reconstruir else entrada["resumo_original"]
                     instrucao += " " + " ".join(orientacao_sobre_risco(fonte_risco))
                     instrucao += " " + " ".join(orientacao_sobre_clearance(fonte_risco))
                     tarefa = rascunho + correcao
@@ -283,13 +300,24 @@ class GeradorReescrita:
         from .validacao import FALTA_INFO, SEM_INTERACAO, SEM_ALTERACAO
         from .prompts import sem_rotulo_intercalado
 
-        foco = entrada.get('alvo') or (tuple(e['alvo'] for e in entrada['evidencias']) if entrada['tipo'] == 'geral' else None)
-        preparadas = [{**e, "texto": preparar_fonte_do_alvo(e["texto"], entrada["origem"], foco)}
-                      for e in entrada["evidencias"]]
-        if preparadas != entrada["evidencias"]:
-            self.etapas.append({"fase": "preparacao_fonte", "status": "RODAPE_OU_EXEMPLOS_SEPARADOS",
-                                "original_hash": hash_dados(entrada["evidencias"]), "preparada_hash": hash_dados(preparadas)})
-            entrada = {**entrada, "evidencias": preparadas}
+        foco = entrada.get('alvo') or tuple(e['alvo'] for e in entrada['evidencias'])
+        apoio = self.apoio or {}
+        cadastro = apoio.get("sinonimos") or {}
+        sinonimos = {a: cadastro[a] for a in ([foco] if isinstance(foco, str) else foco) if cadastro.get(a)}
+        # Mesma referência para o prompt e para todas as conferências: o item
+        # ou as orações do alvo, com a frase cortada completada pela bula.
+        completadas = [completar_frase(e["texto"], apoio.get("trecho")) for e in entrada["evidencias"]]
+        preparadas = [{**e, "texto": referencia_do_alvo(texto, foco, entrada["origem"], sinonimos)}
+                      for e, texto in zip(entrada["evidencias"], completadas)]
+        # Um rótulo isolado ("Uso com X") contido em outra evidência não é outra afirmação.
+        normal = [" ".join(mapear_texto(e["texto"]).texto.split()) for e in preparadas]
+        preparadas = [e for e, n in zip(preparadas, normal)
+                      if not any(n != outro and n in outro for outro in normal)] or preparadas
+        if preparadas != entrada["evidencias"] or sinonimos:
+            self.etapas.append({"fase": "preparacao_fonte", "status": "REFERENCIA_FOCADA_NO_ALVO",
+                                "original_hash": hash_dados(entrada["evidencias"]), "preparada_hash": hash_dados(preparadas),
+                                "frases_completadas": sum(c != e["texto"] for c, e in zip(completadas, entrada["evidencias"]))})
+            entrada = {**entrada, "evidencias": preparadas, "sinonimos": sinonimos}
 
         # Fontes sobre componentes diferentes ou sobre uma ressalva de falta
         # de estudos não são uma única afirmação clínica. Reescreve cada bloco
@@ -444,6 +472,7 @@ def processar_reescrita(repo, nome, gerador, *, reprocessar=False, limite_cards=
             linha = {"medicamento": nome, "status": "SEM_FONTE_VIGENTE"}
             registrar(linha)
             return [linha]
+        gerador.apoio = fonte.get("apoio")
         unidades = unidades_reescrita(fonte)
         selecionadas, cards = [], 0
         for u in unidades:
@@ -470,15 +499,21 @@ def processar_reescrita(repo, nome, gerador, *, reprocessar=False, limite_cards=
                 if not simular:
                     gerador.salvar_bloco_geral = lambda progresso: repo.gravar_progresso_geral(nome, unidade, progresso)
             informar(f"[{indice}/{len(selecionadas)}] {nome}: {unidade['tipo']} {unidade['id']} — {entrada.get('alvo', 'resumo geral')}")
-            texto, erro, status = None, None, "CONCLUIDO"
+            texto, erro, status, queda = None, None, "CONCLUIDO", None
             try:
                 texto = gerador.gerar(entrada)
             except RevisaoDaReescrita as exc:
                 status, erro = "REVISAO", str(exc)
-            except (ValueError, RuntimeError, TimeoutError, MemoryError) as exc:
-                status, erro = "FALHA", f"{type(exc).__name__}: {exc}"
-                if isinstance(exc, MemoryError):
-                    gerador.interrompido_por_recurso = True
+            except Exception as exc:
+                if conexao_perdida(exc):
+                    # Ao salvar um bloco do geral: a unidade fica pendente.
+                    status, erro, queda = "ERRO_CONEXAO", f"{type(exc).__name__}: {exc}", exc
+                elif isinstance(exc, (ValueError, RuntimeError, TimeoutError, MemoryError)):
+                    status, erro = "FALHA", f"{type(exc).__name__}: {exc}"
+                    if isinstance(exc, MemoryError):
+                        gerador.interrompido_por_recurso = True
+                else:
+                    raise
             finally:
                 gerador.salvar_bloco_geral = None
             registro = {"medicamento": nome, "tipo": unidade["tipo"], "id": unidade["id"],
@@ -495,23 +530,62 @@ def processar_reescrita(repo, nome, gerador, *, reprocessar=False, limite_cards=
             if texto is not None:
                 controle["publicado"] = {**registro, "texto_hash": hash_dados(texto)}
             persistencia = perf_counter()
-            if not simular:
+            if not simular and queda is None:
                 try:
                     repo.gravar_reescrita(nome, unidade, texto, controle)
                 except Exception as exc:
-                    registro.update(status="FONTE_ALTERADA_OU_ERRO_BANCO", erro=f"{type(exc).__name__}: {exc}")
+                    if conexao_perdida(exc):
+                        queda = exc
+                    registro.update(status="ERRO_CONEXAO" if queda else "FONTE_ALTERADA_OU_ERRO_BANCO",
+                                    erro=f"{type(exc).__name__}: {exc}")
             registro.update(persistencia_segundos=round(perf_counter() - persistencia, 3),
                             total_segundos=round(perf_counter() - inicio, 3), entrada=entrada,
-                            texto_simples=texto, gravacao=not simular and registro["status"] == status)
+                            texto_simples=texto, gravacao=not simular and registro["status"] == status and queda is None)
             resultados.append(registro)
             registrar(registro)
             informar(f"  {registro['status']}: {registro['total_segundos']:.1f}s" + (f" — {registro['erro']}" if registro["erro"] else ""))
+            if queda is not None:
+                # Não gera as demais unidades sem conseguir gravá-las.
+                raise ConexaoPerdida(f"Conexão com o banco perdida em {nome}: {type(queda).__name__}: {queda}") from queda
             if gerador.interrompido_por_recurso:
                 informar("Limite de memória: execução interrompida; as unidades restantes continuam pendentes.")
                 break
             # O chamador recebe progresso por unidade; nenhum lote inteiro fica
             # pendente de uma transação final para poder ser retomado.
     return resultados
+
+
+def processar_bulas(repo, nomes, processar, *, tentativas=3, espera=5.0, dormir=None,
+                    informar=print, interromper=lambda: False):
+    """Processa a seleção já feita; após queda do banco, reconecta e retoma a mesma bula.
+
+    Retorna 4 quando a conexão não volta após `tentativas`; a seleção não é refeita.
+    """
+    import time
+
+    dormir = dormir or time.sleep
+    indice = quedas = 0
+    while indice < len(nomes):
+        try:
+            processar(nomes[indice])
+        except Exception as erro:
+            if not conexao_perdida(erro):
+                raise
+            quedas += 1
+            LOGGER.warning("Queda de conexão em %s: %s", nomes[indice], erro)
+            informar(f"Conexão com o banco perdida em {nomes[indice]}; reconectando para continuar da próxima unidade pendente.")
+            # Sem progresso entre quedas seguidas, a mesma bula não é tentada indefinidamente.
+            if quedas > tentativas or not repo.reconectar(tentativas=tentativas, espera=espera,
+                                                         dormir=dormir, informar=informar):
+                informar(f"Banco indisponível após {tentativas} tentativas de reconexão; execução encerrada. "
+                         "As unidades já gravadas permanecem e as demais continuam pendentes.")
+                return 4
+            continue
+        quedas = 0
+        if interromper():
+            break
+        indice += 1
+    return 0
 
 
 def argumentos(argv=None):
@@ -575,9 +649,11 @@ def main(argv=None):
     resultados = []
     try:
         repo = RepositorioReescrita(dsn)
+        inicio_selecao = perf_counter()
         nomes = repo.selecionar(args.nome_normalizado, None if args.todos else args.limite or 1,
                                reprocessar=args.reprocessar, modelo=modelo)
-        print(f"Selecionadas {len(nomes)} bulas. Modo: {'SOMENTE SELEÇÃO' if args.listar else 'PILOTO SEM GRAVAÇÃO' if args.simular else 'GRAVAÇÃO POR UNIDADE'}.")
+        LOGGER.info("Seleção: %d bulas em %.1fs", len(nomes), perf_counter() - inicio_selecao)
+        print(f"Selecionadas {len(nomes)} bulas em {perf_counter() - inicio_selecao:.1f}s. Modo: {'SOMENTE SELEÇÃO' if args.listar else 'PILOTO SEM GRAVAÇÃO' if args.simular else 'GRAVAÇÃO POR UNIDADE'}.", flush=True)
         if args.listar:
             for nome in nomes:
                 print(nome)
@@ -591,15 +667,19 @@ def main(argv=None):
                 saida.flush()
                 resultados.append(linha)
 
-            for indice, nome in enumerate(nomes, 1):
-                print(f"Medicamento [{indice}/{len(nomes)}]: {nome}; decorrido {perf_counter() - inicio:.1f}s", flush=True)
+            def processar(nome):
+                print(f"Medicamento [{nomes.index(nome) + 1}/{len(nomes)}]: {nome}; decorrido {perf_counter() - inicio:.1f}s", flush=True)
                 processar_reescrita(repo, nome, gerador, reprocessar=args.reprocessar,
                                     limite_cards=args.limite_cards, simular=args.simular,
                                     registrar=registrar, execucao=arquivo.stem)
-                if gerador.interrompido_por_recurso:
-                    break
+
+            codigo = processar_bulas(repo, nomes, processar, interromper=lambda: gerador.interrompido_por_recurso)
         print(f"Relatório: {arquivo}")
-        return 2 if any(r["status"] not in {"CONCLUIDO"} for r in resultados) else 0
+        if codigo:
+            return codigo
+        # Após uma reconexão, vale o último registro de cada unidade.
+        finais = {(r.get("medicamento"), r.get("tipo"), r.get("id")): r["status"] for r in resultados}
+        return 2 if any(s != "CONCLUIDO" for s in finais.values()) else 0
     except KeyboardInterrupt:
         print("Cancelado. Progresso já gravado permanece disponível para retomada.")
         return 130

@@ -417,6 +417,12 @@ class TestReescrita(unittest.TestCase):
         diferente = copy.deepcopy(entrada)
         diferente['resumos_agrupados'][1]['texto'] = b['resumo_card'].replace('aumento', 'não aumento')
         self.assertIsNone(trechos_com_efeito_repetido(diferente))
+        # Remissão completada pela bula: a seção sai sem "item" e sem aspas tipográficas.
+        com_item = copy.deepcopy(entrada)
+        com_item['resumos_agrupados'][0]['texto'] = a['resumo_card'].replace('(vide “Contraindicações”)',
+                                                                             '(vide item “4. Contraindicações”)')
+        self.assertEqual(trechos_com_efeito_repetido(com_item)['remissoes'],
+                         [('Medb em doses de 15 mg/semana ou mais', '4. Contraindicações')])
         diferente['resumos_agrupados'][1]['texto'] = b['resumo_card'].replace('renal', 'hepática')
         self.assertIsNone(trechos_com_efeito_repetido(diferente))
 
@@ -1561,6 +1567,527 @@ class TestReescrita(unittest.TestCase):
         with self.assertRaises(SystemExit):
             argumentos(["--modelo-revisao", "main"])
 
+
+# Entradas da execução reescrita_20261028_142130_314727.jsonl (relatório local, não versionado).
+REVISOES_20261028 = {'aas_dipirona': {'tipo': 'card',
+                  'origem': 'acido acetilsalicilico',
+                  'id': 980,
+                  'alvo': 'dipirona',
+                  'tipo_alvo': 'PRINCIPIO_ATIVO',
+                  'principios_ativos': 'ácido acetilsalicílico',
+                  'resumo_original': 'Dipirona pode atenuar a inibição plaquetária irreversível induzida '
+                                     'pelo ácido acetilsalicílico.\n'
+                                     'Dipirona pode potencializar o efeito de ácido acetilsalicílico, '
+                                     'aumentando o risco de eventos cardiovasculares.',
+                  'evidencias': [{'id': 980,
+                                  'alvo': 'dipirona',
+                                  'texto': '• metotrexato em doses inferiores a 15 mg/semana: aumento da '
+                                           'toxicidade hematológica do metotrexato (diminuição da\n'
+                                           '  depuração renal do metotrexato por agentes anti-inflamatórios '
+                                           'em geral e deslocamento do metotrexato de sua ligação na\n'
+                                           '  proteína plasmática pelos salicilatos).\n'
+                                           'dipirona e anti-inflamatórios não-esteroidais (AINEs): a '
+                                           'administração simultânea (mesmo dia) de dipirona e alguns '
+                                           'AINEs,\n'
+                                           '  como ibuprofeno e naproxeno, podem atenuar a inibição '
+                                           'plaquetária irreversível induzida pelo ácido acetilsalicílico.'},
+                                 {'id': 983,
+                                  'alvo': 'dipirona',
+                                  'texto': 'O tratamento com dipirona e alguns AINEs, como ibuprofeno e '
+                                           'naproxeno,\n'
+                                           ' em pacientes com risco cardiovascular aumentado podem limitar a '
+                                           'proteção cardiovascular do ácido acetilsalicílico (vide\n'
+                                           '  item “5.'}]},
+ 'mefenamico_tacrolimo': {'tipo': 'card',
+                          'origem': 'acido mefenamico',
+                          'id': 1008,
+                          'alvo': 'tacrolimo',
+                          'tipo_alvo': 'PRINCIPIO_ATIVO',
+                          'principios_ativos': 'ácido mefenâmico',
+                          'resumo_original': 'Tacrolimo pode aumentar o risco de sangramento '
+                                             'gastrointestinal quando coadministrado com AINEs, incluindo o '
+                                             'acido mefenâmico.',
+                          'evidencias': [{'id': 1008,
+                                          'alvo': 'tacrolimo',
+                                          'texto': 'Sendo  assim, quando o  ácido mefenâmico e  lítio são  '
+                                                   'coadministrados, os  pacientes devem  ser\n'
+                                                   'cuidadosamente observados com relação aos sinais de '
+                                                   'toxicidade por lítio.\n'
+                                                   'metotrexato: deve-se ter cautela na administração '
+                                                   'concomitante de metotrexato e AINEs, incluindo o\n'
+                                                   'ácido mefenâmico, já que a administração de AINEs pode '
+                                                   'resultar no aumento dos níveis plasmáticos de\n'
+                                                   'metotrexato, especialmente em pacientes recebendo altas '
+                                                   'doses de metotrexato.\n'
+                                                   'tacrolimo: possibilidade de aumento do risco de '
+                                                   'nefrotoxicidade quando AINEs são coadministrados\n'
+                                                   'com tacrolimo.\n'
+                                                   'cetorolaco: aumento do risco de sangramento '
+                                                   'gastrointestinal.'}]},
+ 'mefenamico_aspirina': {'tipo': 'card',
+                         'origem': 'acido mefenamico',
+                         'id': 1002,
+                         'alvo': 'aspirina',
+                         'tipo_alvo': 'MEDICAMENTO',
+                         'principios_ativos': 'ácido mefenâmico',
+                         'resumo_original': 'Aspirina pode aumentar a resposta aos anticoagulantes orais, '
+                                            'deslocando a varfarina dos sítios de ligação à proteína.',
+                         'evidencias': [{'id': 1002,
+                                         'alvo': 'aspirina',
+                                         'texto': 'INTERAÇÕES MEDICAMENTOSAS\n'
+                                                  'ácido acetilsalicílico: ácido mefenâmico interfere no '
+                                                  'efeito antiplaquetário do ácido acetilsalicílico de\n'
+                                                  'baixa dosagem, e pode, assim, interferir no tratamento '
+                                                  'profilático de doença CV com aspirina.\n'
+                                                  'anticoagulantes: o ácido mefenâmico desloca a varfarina '
+                                                  'dos sítios de ligação à proteína e  pode\n'
+                                                  'aumentar  a  resposta aos  anticoagulantes  orais.'}]},
+ 'abiraterona_espironolactona': {'tipo': 'card',
+                                 'origem': 'acetato de abiraterona',
+                                 'id': 858,
+                                 'alvo': 'espironolactona',
+                                 'tipo_alvo': 'PRINCIPIO_ATIVO',
+                                 'principios_ativos': 'abiraterona',
+                                 'resumo_original': 'Uso com espironolactona A espironolactona liga-se ao '
+                                                    'receptor de andrógenos e pode aumentar os níveis de '
+                                                    'antígeno prostático específico (PSA).\n'
+                                                    'Uso com espironolactona\n'
+                                                    '27- A espironolactona liga-se ao receptor de andrógenos '
+                                                    'e pode aumentar os níveis de antígeno prostático '
+                                                    'específico (PSA).',
+                                 'evidencias': [{'id': 858,
+                                                 'alvo': 'espironolactona',
+                                                 'texto': 'Uso com espironolactona\n'
+                                                          '    A espironolactona liga-se ao receptor de '
+                                                          'andrógenos e pode aumentar os níveis de antígeno '
+                                                          'prostático específico (PSA).'},
+                                                {'id': 859,
+                                                 'alvo': 'espironolactona',
+                                                 'texto': 'Uso com espironolactona'},
+                                                {'id': 860,
+                                                 'alvo': 'espironolactona',
+                                                 'texto': '-27-\n'
+                                                          'A espironolactona liga-se ao receptor de '
+                                                          'andrógenos e pode aumentar os níveis de antígeno '
+                                                          'prostático específico (PSA).'}]},
+ 'clormadinona_efavirenz': {'tipo': 'card',
+                            'origem': 'acetato de clormadinona + etinilestradiol',
+                            'id': 945,
+                            'alvo': 'efavirenz',
+                            'tipo_alvo': 'PRINCIPIO_ATIVO',
+                            'principios_ativos': 'acetato de clormadinona; etinilestradiol',
+                            'resumo_original': 'Efavirenz potencializa o efeito de efavirenz, aumentando sua '
+                                               'eficácia no organismo.',
+                            'evidencias': [{'id': 945,
+                                            'alvo': 'efavirenz',
+                                            'texto': '- rifampicina, rifabutina, barbitúricos, '
+                                                     'antiepilépticos (como carbamazepina, oxcarbazepina, '
+                                                     'felbamato, fenitoína e topiramato),\n'
+                                                     'griseofulvina, barbexaclona, primidona, modafinila, '
+                                                     'bosentana, alguns inibidores da protease (medicamentos '
+                                                     'para HIV, por exemplo,\n'
+                                                     'ritonavir, nevirapina e efavirenz) e produtos herbais '
+                                                     'contendo Erva de São João (Hypericum perforatum).'}]},
+ 'aciclor_micofenolato': {'tipo': 'card',
+                          'origem': 'aciclor',
+                          'id': 973,
+                          'alvo': 'micofenolato',
+                          'tipo_alvo': 'PRINCIPIO_ATIVO',
+                          'principios_ativos': 'aciclovir',
+                          'resumo_original': 'De modo similar, aumentos nas ASCs plasmáticas do aciclovir e '
+                                             'do metabólito inativo de micofenolato de mofetil, um agente '
+                                             'imunossupressor usado em pacientes transplantados, foram '
+                                             'demonstrados quando as drogas foram coadministradas.',
+                          'evidencias': [{'id': 973,
+                                          'alvo': 'micofenolato',
+                                          'texto': 'De modo similar, aumentos nas ASCs plasmáticas do '
+                                                   'aciclovir e do\n'
+                                                   'metabólito inativo de micofenolato de mofetil, um agente '
+                                                   'imunossupressor usado em pacientes transplantados, foram '
+                                                   'demonstrados\n'
+                                                   'quando as drogas foram coadministradas.'}]},
+ 'ciproterona_carbamazepina': {'tipo': 'card',
+                               'origem': 'acetato de ciproterona+etinilestradiol',
+                               'id': 913,
+                               'alvo': 'carbamazepina',
+                               'tipo_alvo': 'PRINCIPIO_ATIVO',
+                               'principios_ativos': 'acetato de ciproterona; etinilestradiol',
+                               'resumo_original': 'Carbamazepina potencializa a depuração do acetato de '
+                                                  'ciproterona + etinilestradiol, diminuindo a eficácia do '
+                                                  'primeiro princípio ativo.',
+                               'evidencias': [{'id': 913,
+                                               'alvo': 'carbamazepina',
+                                               'texto': '\uf0d8  Substâncias que aumentam a depuração de '
+                                                        'acetato de ciproterona + etinilestradiol (eficácia '
+                                                        'de\n'
+                                                        '    acetato de ciproterona + etinilestradiol '
+                                                        'diminuída por indução enzimática), por exemplo:\n'
+                                                        'fenitoína, barbitúricos, primidona, carbamazepina, '
+                                                        'rifampicina e possivelmente, também com '
+                                                        'oxcarbazepina,\n'
+                                                        'topiramato, felbamato, griseofulvina e produtos '
+                                                        'contendo Erva de São João.'}]}}
+CORRETAS_20261028 = {
+    "aas_dipirona": "Usar dipirona e alguns AINEs, como ibuprofeno e naproxeno, no mesmo dia pode atenuar a inibição "
+                    "plaquetária irreversível induzida pelo ácido acetilsalicílico.",
+    "mefenamico_tacrolimo": "Quando AINEs, como o ácido mefenâmico, são usados ao mesmo tempo que o tacrolimo, pode "
+                            "aumentar o risco de nefrotoxicidade, um dano aos rins.",
+    "mefenamico_aspirina": "O ácido mefenâmico interfere no efeito antiplaquetário do ácido acetilsalicílico (aspirina) de "
+                           "baixa dosagem e pode, assim, interferir no tratamento preventivo de doença cardiovascular com aspirina.",
+    "abiraterona_espironolactona": "A espironolactona se liga ao receptor de andrógenos e pode aumentar os níveis de "
+                                   "antígeno prostático específico (PSA).",
+}
+# Saídas reais do SmolLM3 na mesma execução (logs/resumos_interacoes.log).
+INCORRETAS_20261028 = {
+    # Direção invertida: a bula não diz que o contraceptivo reduz o efeito do efavirenz.
+    "clormadinona_efavirenz": ("O acetato de clormadinona + etinilestradiol reduz o efeito de efavirenz, um medicamento "
+                               "para HIV, quando usado ao mesmo tempo.", "Afirma redução sem suporte"),
+    # Inventa aumento do próprio micofenolato.
+    "aciclor_micofenolato": ("Assim como ocorre com o aumento das concentrações plasmáticas do aciclovir e do metabólito "
+                             "inativo de micofenolato de mofetil, um imunossupressor usado em pacientes transplantados, a "
+                             "coadministração dessas drogas também provoca um aumento nas concentrações plasmáticas do "
+                             "micofenolato.", "concentração acrescentado"),
+    # Copia a lista sem a carbamazepina.
+    "ciproterona_carbamazepina": ("Substâncias que aumentam a depuração de acetato de ciproterona + etinilestradiol (eficácia "
+                                  "de acetato de ciproterona + etinilestradiol diminuída por indução enzimática), por "
+                                  "exemplo: fenitoína, barbitúricos, primidona, rifampicina e possivelmente, também com "
+                                  "oxcarbazepina, topiramato, felbamato, griseofulvina e produtos contendo Erva de São João.",
+                                  "mencionar o alvo"),
+}
+
+
+def entrada_da_execucao(chave, **extras):
+    return {**copy.deepcopy(REVISOES_20261028[chave]), **extras}
+
+
+class RepoComQueda(Repo):
+    def __init__(self, falhas):
+        super().__init__()
+        segunda = {**linha(), "id": 2, "alvo": "medc", "resumo_card": ORIGINAL.replace("Medb", "Medc"),
+                   "evidencia": ORIGINAL.replace("Medb", "Medc")}
+        self.atual["interacoes"].append(segunda)
+        self.falhas = list(falhas)
+        self.reconexoes = 0
+
+    def gravar_reescrita(self, nome, unidade, texto, controle):
+        if self.falhas:
+            raise self.falhas.pop(0)
+        self.gravacoes.append((texto, controle))
+        item = next(i for i in self.atual["interacoes"] if i["id"] == unidade["id"])
+        item["resumo_card_simples"] = texto
+        item.setdefault("reescrita_controle", {}).update(copy.deepcopy(controle))
+
+    def reconectar(self, **opcoes):
+        self.reconexoes += 1
+        return True
+
+
+class TestReferenciaFocadaNoAlvo(unittest.TestCase):
+    def gerador(self, saidas):
+        return GeradorReescrita(Provedor(saidas), ConfiguracaoIdentificacao(), MODELO, ram_minima_mb=0, tentativas=2)
+
+    def test_respostas_corretas_da_execucao_passam_na_reconstrucao(self):
+        for chave, texto in CORRETAS_20261028.items():
+            with self.subTest(chave=chave):
+                self.assertEqual(validar_saida_reconstrucao(resposta(texto), entrada_da_execucao(chave)), texto)
+
+    def test_saidas_reais_incorretas_continuam_recusadas(self):
+        sinonimos = {"carbamazepina": ["carbamazepina", "tegretard", "tegrezin", "teucarba"]}
+        for chave, (texto, motivo) in INCORRETAS_20261028.items():
+            for extras in ({}, {"sinonimos": sinonimos}):
+                with self.subTest(chave=chave, sinonimos=bool(extras)), self.assertRaisesRegex(RevisaoDaReescrita, motivo):
+                    validar_saida_reconstrucao(resposta(texto), entrada_da_execucao(chave, **extras))
+
+    def test_referencia_unica_recorta_o_item_do_alvo_no_prompt_e_na_validacao(self):
+        from pipelines.resumos_interacoes.validacao import referencia_da_reconstrucao
+        entrada = entrada_da_execucao("mefenamico_tacrolimo")
+        referencia = referencia_da_reconstrucao(entrada)
+        self.assertTrue(referencia.startswith("tacrolimo: possibilidade de aumento do risco de nefrotoxicidade"))
+        for outro in ("lítio", "metotrexato", "cetorolaco"):
+            self.assertNotIn(outro, referencia)
+        texto = CORRETAS_20261028["mefenamico_tacrolimo"]
+        gerador = self.gerador([resposta(texto)])
+        self.assertEqual(gerador._executar_fonte(entrada), texto)
+        pedido = str(gerador.provedor.pedidos[0])
+        self.assertIn("nefrotoxicidade", pedido)
+        self.assertNotIn("cetorolaco", pedido)
+        self.assertNotIn("níveis plasmáticos", pedido)
+        self.assertEqual(entrada, entrada_da_execucao("mefenamico_tacrolimo"))
+
+    def test_recorte_reconhece_rotulo_inline_marcador_cabecalho_e_lista_compartilhada(self):
+        from pipelines.resumos_interacoes.contexto import referencia_do_alvo
+        casos = [
+            ("Meda reduz a ação de hipoglicemiantes orais. lítio: Meda eleva o nível de lítio. digoxina: sem dados.",
+             "lítio", "lítio: Meda eleva o nível de lítio."),
+            ("• fenitoína: aumento da toxicidade.\n• digoxina: aumento das concentrações de digoxina.",
+             "digoxina", "• digoxina: aumento das concentrações de digoxina."),
+            ("Os seguintes medicamentos podem reduzir a eficácia de Meda:\n- rifampicina, rifabutina\n- efavirenz.",
+             "efavirenz", "Os seguintes medicamentos podem reduzir a eficácia de Meda:\n- efavirenz."),
+            # A lista e seu efeito são uma unidade; não se separa o efeito dos integrantes.
+            ("Medicamentos: amiodarona, sotalol\nEfeito da interação: aumento do risco de arritmia.",
+             "sotalol", "Medicamentos: amiodarona, sotalol\nEfeito da interação: aumento do risco de arritmia."),
+            ("Medb aumenta a concentração de Meda. Isso pode exigir ajuste. Medc reduz o efeito.",
+             "Medb", "Medb aumenta a concentração de Meda. Isso pode exigir ajuste."),
+        ]
+        for texto, alvo, esperado in casos:
+            with self.subTest(alvo=alvo):
+                foco = referencia_do_alvo(texto, alvo, "meda")
+                self.assertEqual(foco, esperado)
+                self.assertEqual(referencia_do_alvo(foco, alvo, "meda"), foco)
+        # Ambíguo: alvo ausente ou retomado por outra frase mantém o bloco inteiro;
+        # registros com campos enumerados e listas entre parênteses seguidas do efeito também.
+        for texto, alvo in [("lítio: aumento. digoxina: redução.", "varfarina"),
+                            ("Meda aumenta a ação. Isso ocorre com Medb.", "Medb"),
+                            ("Medicamento: voriconazol.\nc) Gravidade: Menor\nEfeito de interação: aumento do risco de hemorragia.",
+                             "voriconazol"),
+                            ("Medicamentos que contenham cátions (tais como alumínio, magnésio e ferro) interferem na absorção de Meda.",
+                             "magnésio")]:
+            with self.subTest(texto=texto):
+                self.assertEqual(referencia_do_alvo(texto, alvo, "meda"), texto)
+
+    def test_frase_cortada_completa_somente_com_complemento_unico_e_curto(self):
+        from pipelines.resumos_interacoes.contexto import completar_frase
+        evidencia = "deve-se considerar a dose diária de 70 mg (vide item 8."
+        trecho = "Texto anterior. " + evidencia + " POSOLOGIA E MODO DE USAR).\nEm pacientes pediátricos, outra frase."
+        self.assertEqual(completar_frase(evidencia, trecho), evidencia + " POSOLOGIA E MODO DE USAR).")
+        completa = "A espironolactona pode aumentar o PSA."
+        self.assertEqual(completar_frase(completa, "Uso: " + completa + " Mais."), completa)
+        for outro in [trecho + "\n" + evidencia + " CONTRAINDICAÇÕES).",            # dois complementos diferentes
+                      "Texto. " + evidencia + " " + "palavra " * 60 + ").",         # longo demais
+                      "Texto. " + evidencia + "\n• digoxina: outro item)."]:        # entraria em outro item
+            with self.subTest(trecho=outro[-30:]):
+                self.assertEqual(completar_frase(evidencia, outro), evidencia)
+
+    def test_marcador_de_pagina_e_remissao_incompleta_nao_sao_quantidades(self):
+        entrada = entrada_card(linha())
+        texto = "A espironolactona pode aumentar os níveis de PSA."
+        for fonte in ["-27-\n" + texto, texto + " (vide 4.", texto + " (vide\n item “5.", texto + " vide 4",
+                      texto + " (vide 4. CONTRAINDICAÇÕES e 6. INTERAÇÕES MEDICAMENTOSAS)."]:
+            with self.subTest(fonte=fonte):
+                conferir_fidelidade(texto, fonte, entrada, preservar=True)
+        # Doses com unidade, percentuais e frequências continuam obrigatórios.
+        for dado in ["na dose de 70 mg/m2", "em 30%", "duas vezes ao dia", "por 14 dias"]:
+            with self.subTest(dado=dado), self.assertRaises(RevisaoDaReescrita):
+                conferir_fidelidade(texto, texto[:-1] + " " + dado + " (vide 4.", entrada, preservar=True)
+
+    def test_remissao_montada_rodape_e_metro_quadrado_nao_sao_quantidades_novas(self):
+        entrada = entrada_card(linha())
+        texto = "A espironolactona pode aumentar os níveis de PSA."
+        fonte = texto + " (vide item “4. Contraindicações”)."
+        # A frase de remissão do efeito comum é montada pelo código; a outra, reescrita pelo modelo.
+        for saida in [texto + ' O trecho "uso com espironolactona" remete à seção "4. Contraindicações".',
+                      texto[:-1] + ", conforme indicado no item “4. Contraindicações”."]:
+            with self.subTest(saida=saida):
+                conferir_fidelidade(saida, fonte, entrada, preservar=True)
+        rodape = ("A depuração do diazepam livre foi reduzida\nBiolab Sanus      ácido valproico (Profissional) – 06/2026\n"
+                  "em 25% na presença de ácido valproico.")
+        conferir_fidelidade("A depuração do diazepam livre foi reduzida em 25% na presença de ácido valproico.",
+                            rodape, entrada, preservar=True)
+        dose = "Deve-se considerar uma dose de Meda de 70 mg/m2 diariamente."
+        conferir_fidelidade("Deve-se considerar uma dose de Meda de 70 mg por metro quadrado diariamente.",
+                            dose, entrada, preservar=True)
+        for errado in ["Deve-se considerar uma dose de Meda de 50 mg por metro quadrado diariamente.",
+                       "A depuração do diazepam livre foi reduzida em 35% na presença de ácido valproico."]:
+            with self.subTest(errado=errado), self.assertRaises(RevisaoDaReescrita):
+                conferir_fidelidade(errado, dose + "\n" + rodape, entrada, preservar=True)
+
+    def test_alvo_separado_da_propria_lista_nao_vira_exigencia_de_outro_medicamento(self):
+        entrada = {**entrada_card(linha()), "alvo": "efavirenz"}
+        fonte = ("Quando o acetato de caspofungina é coadministrado em pacientes pediátricos com indutores de depuração "
+                 "do fármaco, como rifampicina, efavirenz, nevirapina, fenitoína, dexametasona, ou carbamazepina, deve-se "
+                 "considerar uma dose de acetato de caspofungina de 70 mg/m2 diariamente (sem exceder uma dose diária "
+                 "real de 70 mg).")
+        # Saída real do SmolLM3 para o card do efavirenz.
+        separado = ("Quando o medicamento acetato de caspofungina é usado com o medicamento efavirenz em crianças que também "
+                    "estão tomando medicamentos que ajudam o corpo a eliminar outros medicamentos, como rifampicina, "
+                    "fenitoína, dexametasona ou carbamazepina, deve-se considerar uma dose de acetato de caspofungina de "
+                    "70 mg por metro quadrado diariamente (sem exceder uma dose diária real de 70 mg).")
+        with self.assertRaisesRegex(RevisaoDaReescrita, "Condição nova"):
+            conferir_fidelidade(separado, fonte, entrada, preservar=True)
+        # Mesmo erro sem "também", no card da nevirapina.
+        with self.assertRaisesRegex(RevisaoDaReescrita, "Condição nova"):
+            conferir_fidelidade("Quando o acetato de caspofungina é usado com a nevirapina em crianças que recebem "
+                                "medicamentos que ajudam o corpo a eliminar outros medicamentos, como rifampicina, efavirenz, "
+                                "dexametasona ou carbamazepina, é importante considerar uma dose de acetato de caspofungina "
+                                "de 70 mg por metro quadrado todos os dias (sem ultrapassar uma dose diária de 70 mg).",
+                                fonte, {**entrada, "alvo": "nevirapina"}, preservar=True)
+        # O alvo dentro da lista continua aceito.
+        conferir_fidelidade("Quando o acetato de caspofungina é usado em crianças com medicamentos que ajudam o corpo a "
+                            "eliminar outros medicamentos, como rifampicina, efavirenz, nevirapina, fenitoína, dexametasona "
+                            "ou carbamazepina, deve-se considerar uma dose de acetato de caspofungina de 70 mg por metro "
+                            "quadrado diariamente (sem exceder uma dose diária real de 70 mg).", fonte, entrada, preservar=True)
+
+    def test_mencao_do_alvo_aceita_sinonimos_do_cadastro_e_formas_sem_sal(self):
+        from pipelines.resumos_interacoes.validacao import nomes_do_alvo
+        saida = ("ácido acetilsalicilico: ácido mefenâmico interfere no efeito antiplaquetário do ácido acetilsalicilico de "
+                 "baixa dosagem, e pode, assim, interferir no tratamento profilático de doença cardiovascular com ácido "
+                 "acetilsalicilico.")
+        with self.assertRaisesRegex(RevisaoDaReescrita, "mencionar o alvo"):
+            validar_saida_reconstrucao(resposta(saida), entrada_da_execucao("mefenamico_aspirina"))
+        sinonimos = {"aspirina": ["acido acetilsalicilico", "aspirina"]}
+        self.assertEqual(validar_saida_reconstrucao(resposta(saida), entrada_da_execucao("mefenamico_aspirina", sinonimos=sinonimos)),
+                         saida[:1].upper() + saida[1:])
+        self.assertIn("amiodarona", nomes_do_alvo({"alvo": "cloridrato de amiodarona"}))
+
+    def test_sinonimos_do_cadastro_ignoram_associacoes(self):
+        from pipelines.resumos_interacoes.repositorio import sinonimos_do_cadastro
+        vinculos = [{"interacao_id": 1, "nome_normalizado": "aspirina", "principios_ativos": "ácido acetilsalicílico"},
+                    {"interacao_id": 1, "nome_normalizado": "doril", "principios_ativos": "ácido acetilsalicílico; cafeína"},
+                    {"interacao_id": 9, "nome_normalizado": "outra", "principios_ativos": "outra"}]
+        self.assertEqual(sinonimos_do_cadastro([{"id": 1, "alvo": "aspirina"}], vinculos),
+                         {"aspirina": ["acido acetilsalicilico", "aspirina"]})
+
+    def test_coadministracao_e_clearance_trocados_com_concordancia(self):
+        from pipelines.resumos_interacoes.prompts import padronizar_vocabulario_neutro
+        casos = {
+            "Quando o tacrolimo é coadministrado com AINEs, há risco.": "Quando o tacrolimo é usado em conjunto com AINEs, há risco.",
+            "As drogas foram coadministradas.": "As drogas foram usadas em conjunto.",
+            "A coadministração de Meda com Medb exige cuidado.": "A utilização em conjunto de Meda com Medb exige cuidado.",
+            "Reduz o clearance renal do aciclovir.": "Reduz a eliminação do aciclovir pelos rins.",
+            "Redução do clearance plasmático.": "Redução da retirada do medicamento do sangue.",
+            "Pode aumentar o clearance do ácido valproico.": "Pode aumentar a retirada do ácido valproico do sangue.",
+            "O clearance da lamotrigina é aumentado.": "A retirada da lamotrigina do sangue é aumentada.",
+            "Clearance de creatinina abaixo de 30 mL/min.": "Clearance de creatinina abaixo de 30 mL/min.",
+        }
+        for original, esperado in casos.items():
+            with self.subTest(original=original):
+                self.assertEqual(padronizar_vocabulario_neutro(original), esperado)
+
+    def test_acabamento_troca_termos_e_valida_o_texto_final(self):
+        original = "Quando Meda é coadministrado com Medb, pode ocorrer redução do clearance de Medb."
+        entrada = entrada_card({**linha(), "resumo_card": original, "evidencia": original})
+        gerador = self.gerador([resposta(original), resposta(original)])
+        self.assertEqual(gerador.gerar(entrada),
+                         "Quando Meda é usado em conjunto com Medb, pode ocorrer redução da retirada de Medb do sangue.")
+        self.assertTrue(any(e.get("fase") == "acabamento_vocabulario" for e in gerador.etapas))
+        # A troca não autoriza aceitar um texto que perdeu a possibilidade.
+        gerador = self.gerador([resposta(original), resposta(original.replace("pode ocorrer", "ocorre"))])
+        with self.assertRaises(RevisaoDaReescrita):
+            gerador._executar(entrada)
+        self.assertFalse(any(e.get("status") == "CONCLUIDO" for e in gerador.etapas))
+
+    def test_queda_de_conexao_interrompe_a_bula_e_retoma_da_unidade_pendente(self):
+        import psycopg
+        from pipelines.resumos_interacoes.reescrita import ConexaoPerdida, processar_bulas
+        repo = RepoComQueda([psycopg.OperationalError("the connection is lost")])
+        gerador = self.gerador([resposta(), resposta(), resposta(), resposta(SIMPLES.replace("Medb", "Medc"))])
+        registros = []
+        with self.assertRaises(ConexaoPerdida):
+            processar_reescrita(repo, "meda", gerador, registrar=registros.append)
+        self.assertEqual([r["status"] for r in registros], ["ERRO_CONEXAO"])
+        self.assertEqual(gerador.chamadas, 1)
+        # Retoma a mesma bula sem nova seleção; a unidade não gravada continua pendente.
+        repo.falhas = [psycopg.OperationalError("server closed the connection unexpectedly")]
+        processar = lambda nome: processar_reescrita(repo, nome, gerador, registrar=registros.append)
+        self.assertEqual(processar_bulas(repo, ["meda"], processar, espera=0, dormir=lambda s: None, informar=lambda m: None), 0)
+        self.assertEqual(repo.reconexoes, 1)
+        self.assertEqual([r["status"] for r in registros], ["ERRO_CONEXAO", "ERRO_CONEXAO", "CONCLUIDO", "CONCLUIDO"])
+        self.assertEqual(len(repo.gravacoes), 2)
+
+    def test_fonte_alterada_continua_e_reconexao_esgotada_encerra_com_codigo_4(self):
+        import psycopg
+        from pipelines.resumos_interacoes.reescrita import conexao_perdida, processar_bulas
+        repo = RepoComQueda([ValueError("A fonte ou o resumo original mudou; reescrita não publicada.")])
+        r = processar_reescrita(repo, "meda", self.gerador([resposta(), resposta(SIMPLES.replace("Medb", "Medc"))]))
+        self.assertEqual([x["status"] for x in r], ["FONTE_ALTERADA_OU_ERRO_BANCO", "CONCLUIDO"])
+        self.assertFalse(conexao_perdida(psycopg.errors.SerializationFailure("conflito")))
+        self.assertTrue(conexao_perdida(psycopg.OperationalError("the connection is lost")))
+
+        class SemBanco:
+            tentativas = 0
+
+            def reconectar(self, **opcoes):
+                self.tentativas += 1
+                return False
+
+        def cair(nome):
+            raise psycopg.OperationalError("the connection is lost")
+        sem_banco = SemBanco()
+        self.assertEqual(processar_bulas(sem_banco, ["meda", "medx"], cair, espera=0, dormir=lambda s: None,
+                                         informar=lambda m: None), 4)
+        self.assertEqual(sem_banco.tentativas, 1)
+        # Reconecta, mas a bula cai de novo sem progresso: não repete indefinidamente.
+        repo.reconexoes = 0
+        self.assertEqual(processar_bulas(repo, ["meda"], cair, tentativas=3, espera=0, dormir=lambda s: None,
+                                         informar=lambda m: None), 4)
+        self.assertEqual(repo.reconexoes, 3)
+
+
+class TestSelecaoEmLote(unittest.TestCase):
+    def processamento(self, pid, nome, *, geral="", simples=None, status=None):
+        return {"id": pid, "medicamento_origem": nome, "hash_trecho": "h" + nome, "sha256_pdf": "pdf",
+                "resumo_geral": geral, "resumo_geral_simples": simples, "status_publicado": status, "principios_ativos": nome}
+
+    def card(self, iid, pid, nome, alvo, *, simples=None, status=None, evidencia=None, tipo="PRINCIPIO_ATIVO"):
+        texto = evidencia or nome.capitalize() + " pode aumentar a concentração de " + alvo + "."
+        return {"id": iid, "processamento_id": pid, "medicamento_origem": nome, "alvo": alvo, "tipo_alvo": tipo,
+                "evidencia": texto, "resumo_card": texto, "resumo_card_simples": simples, "status_publicado": status}
+
+    def cenario(self):
+        processamentos = [self.processamento(1, "a"), self.processamento(2, "b", geral="Geral b.", simples="Simples.", status="CONCLUIDO"),
+                          self.processamento(3, "c"), self.processamento(4, "d"), self.processamento(5, "e"),
+                          self.processamento(6, "f")]
+        interacoes = [
+            self.card(10, 1, "a", "medb"),                                                      # pendente
+            self.card(20, 2, "b", "medb", simples="Simples.", status="CONCLUIDO"),              # tudo publicado
+            self.card(30, 3, "c", "medb", status="REVISAO"),                                    # REVISAO volta à fila
+            self.card(40, 4, "d", "medb", simples="Simples.", status="CONCLUIDO"),              # mesmo alvo agrupado:
+            self.card(41, 4, "d", "medb", evidencia="D pode aumentar o efeito de medb."),       # um ainda pendente
+            self.card(50, 5, "e", "medb", simples="Simples.", status="CONCLUIDO"),
+            self.card(51, 5, "e", "medb", simples="Simples.", status="CONCLUIDO", evidencia="E pode aumentar o efeito de medb."),
+            # Relação não positiva não forma unidade e não torna a bula pendente.
+            self.card(60, 6, "f", "medb", evidencia="Medb não alterou a farmacocinética de f."),
+        ]
+        return processamentos, interacoes
+
+    def antigo(self, processamentos, interacoes, reprocessar=False):
+        from pipelines.identificacao_interacoes.validacao import relacao_nao_positiva
+        nomes = []
+        for p in processamentos:
+            linhas = [{**i, "hash_trecho": p["hash_trecho"], "sha256_pdf": p["sha256_pdf"], "principios_ativos": p["principios_ativos"],
+                       "reescrita_controle": {"publicado": {"status": i["status_publicado"]}} if i["status_publicado"] else
+                       {"ultima_tentativa": {"status": "REVISAO"}}}
+                      for i in interacoes if i["processamento_id"] == p["id"]]
+            fonte = {**p, "processamento_id": p["id"], "interacoes": [i for i in linhas if not relacao_nao_positiva(i)],
+                     "reescrita_controle": {"publicado": {"status": p["status_publicado"]}} if p["status_publicado"] else {}}
+            if any(reprocessar or not u["concluido"] for u in unidades_reescrita(fonte)):
+                nomes.append(p["medicamento_origem"])
+        return nomes
+
+    def test_mesmo_criterio_da_selecao_por_bula(self):
+        from pipelines.resumos_interacoes.repositorio import bulas_pendentes
+        processamentos, interacoes = self.cenario()
+        self.assertEqual(bulas_pendentes(processamentos, interacoes), ["a", "c", "d"])
+        self.assertEqual(bulas_pendentes(processamentos, interacoes), self.antigo(processamentos, interacoes))
+        self.assertEqual(bulas_pendentes(processamentos, interacoes, reprocessar=True),
+                         self.antigo(processamentos, interacoes, reprocessar=True))
+        self.assertEqual(bulas_pendentes(processamentos, interacoes, limite=2), ["a", "c"])
+        cards_d = unidades_reescrita({**processamentos[3], "processamento_id": 4, "interacoes": [
+            {**i, "hash_trecho": "hd", "sha256_pdf": "pdf", "principios_ativos": "d"} for i in interacoes if i["processamento_id"] == 4]})
+        self.assertEqual([u["ids"] for u in cards_d], [[40, 41]])
+
+    def test_duas_consultas_independentemente_do_numero_de_bulas(self):
+        from pipelines.resumos_interacoes.repositorio import RepositorioReescrita
+        processamentos, interacoes = self.cenario()
+
+        class Conexao:
+            def __init__(self):
+                self.consultas = []
+
+            @contextmanager
+            def transaction(self):
+                yield
+
+            def execute(self, sql, parametros=None):
+                self.consultas.append(sql)
+                linhas = processamentos if "processamentos_interacoes_vigentes" in sql else [
+                    i for i in interacoes if i["processamento_id"] in parametros[0]] if "FROM interacoes" in sql else []
+                return SimpleNamespace(fetchall=lambda: linhas)
+
+        repo = RepositorioReescrita.__new__(RepositorioReescrita)
+        repo.conexao = Conexao()
+        self.assertEqual(repo.selecionar(None, None), ["a", "c", "d"])
+        self.assertEqual(len([s for s in repo.conexao.consultas if "SELECT" in s]), 2)
 
 if __name__ == "__main__":
     unittest.main()

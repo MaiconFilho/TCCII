@@ -66,6 +66,13 @@ class TestContextoResumos(unittest.TestCase):
         self.assertIn(recuperada, completo)
         self.assertNotIn("sulfonilureias", recuperada)
 
+    def test_recupera_rotulo_no_meio_do_texto(self):
+        texto = ("Meda reduz a ação de hipoglicemiantes orais. lítio: Meda eleva o nível plasmático de lítio "
+                 "e reduz sua eliminação. metotrexato: deve-se ter cautela.")
+        recuperada = recuperar_secao(texto, "e reduz sua eliminação.", "lítio")
+        self.assertEqual(recuperada, "lítio: Meda eleva o nível plasmático de lítio e reduz sua eliminação.")
+        self.assertIn(recuperada, texto)
+
     def test_nao_recupera_ocorrencia_ambigua_ou_sem_rotulo(self):
         evidencia = "O uso concomitante aumenta a concentração de sirolimo."
         for fonte in ["sirolimo: " + evidencia + "\nOutra ocorrência: " + evidencia,

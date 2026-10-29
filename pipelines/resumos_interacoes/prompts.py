@@ -59,12 +59,65 @@ def proteger_remissoes(texto):
     return REMISSAO_CITADA.sub(proteger, texto), originais
 
 
+FEMININO = {"o": "a", "do": "da", "no": "na", "pelo": "pela", "ao": "à", "um": "uma", "seu": "sua",
+            "este": "esta", "esse": "essa", "deste": "desta", "desse": "dessa", "neste": "nesta", "nesse": "nessa"}
+CLEARANCE = re.compile(
+    r"\b(?:(?P<artigo>o|do|no|pelo|ao|um|seu|este|esse|deste|desse|neste|nesse|a|da|na|pela|à|uma|sua)\s+)?"
+    r"clearance(?:\s+(?P<tipo>plasm[áa]tic[oa]|sist[êe]mic[oa]|total|renal|hep[áa]tic[oa]))?"
+    r"(?:\s+(?P<participio>reduzid|diminu[íi]d|aumentad|elevad|alterad|prejudicad)[oa]\b)?"
+    r"(?!\s+de\s+creatinina)"
+    r"(?:\s+(?P<preposicao>de|do|da|dos|das|desse|dessa|desses|dessas|deste|desta|destes|destas)\s+"
+    r"(?P<nome>[^\W\d_][\w-]*(?:\s+(?!(?:e|ou|com|quando|em|no|na|nos|nas|pelo|pela|pelos|pelas|por|após|apos|durante|"
+    r"para|que|se|ao|aos|à|às|entre|sem|sobre|foi|é|são|pode|podem|deve|devem|está|estão|fica|ficam)\b)[^\W\d_][\w-]*){0,2}))?"
+    r"(?:(?P<predicado>\s+(?:é|foi|está|esteve|fica|ficou|será|seria|pode ser|podem ser)\s+)"
+    r"(?P<estado>reduzid|diminu[íi]d|aumentad|elevad|alterad|prejudicad|acelerad|retardad|afetad|inibid|induzid)o\b)?",
+    re.I)
+
+
+def _maiuscula_como(original, troca):
+    return troca[:1].upper() + troca[1:] if original[:1].isupper() else troca
+
+
+def _sem_clearance(m):
+    """'o clearance renal do lítio' -> 'a eliminação do lítio pelos rins'."""
+    tipo = mapear_texto(m["tipo"] or "").texto
+    if m["nome"]:
+        objeto = m["preposicao"] + " " + m["nome"]
+    else:
+        objeto = "" if tipo == "renal" else "do medicamento"
+    if tipo == "renal":
+        nucleo, destino = "eliminação", "pelos rins"
+    else:
+        nucleo, destino = "retirada", "do sangue pelo fígado" if tipo.startswith("hepatic") else "do sangue"
+    if m["participio"]:
+        nucleo += " " + m["participio"] + "a"
+    frase = " ".join(p for p in (nucleo, objeto, destino) if p)
+    if m["artigo"]:
+        frase = FEMININO.get(m["artigo"].lower(), m["artigo"].lower()) + " " + frase
+    if m["estado"]:
+        frase += m["predicado"] + m["estado"] + "a"
+    return _maiuscula_como(m[0], frase)
+
+
+def simplificar_termos_tecnicos(texto):
+    """Troca 'coadministr*' e 'clearance' pelos equivalentes do guia, com concordância simples."""
+    texto = re.sub(r"\bcoadministraç(ão|ões)\b",
+                   lambda m: _maiuscula_como(m[0], "utilização em conjunto" if m[1] == "ão" else "utilizações em conjunto"),
+                   texto, flags=re.I)
+    texto = re.sub(r"\bcoadministrad([oa]s?)\b", lambda m: _maiuscula_como(m[0], "usad" + m[1].lower() + " em conjunto"),
+                   texto, flags=re.I)
+    texto = re.sub(r"\bcoadministr(ar|ando)\b", lambda m: _maiuscula_como(m[0], "us" + m[1].lower() + " em conjunto"),
+                   texto, flags=re.I)
+    return CLEARANCE.sub(_sem_clearance, texto)
+
+
 def padronizar_vocabulario_neutro(texto):
-    """Acabamento de três termos de redação, sem reescrever efeitos clínicos."""
+    """Acabamento de termos de redação com equivalente conhecido, sem reescrever efeitos clínicos."""
     texto, remissoes = proteger_remissoes(texto)
     for padrao, troca in [(r"\bconcomitantemente\b|\bconcomitantes?\b", "ao mesmo tempo"),
                           (r"\bconjuntamente\b", "juntos"), (r"\bfármaco(s?)\b", r"medicamento\1")]:
         texto = re.sub(padrao, troca, texto, flags=re.I)
+    texto = simplificar_termos_tecnicos(texto)
     for token, original in remissoes.items():
         texto = texto.replace(token, original)
     return texto
@@ -141,6 +194,9 @@ def preparar_fonte_do_alvo(texto, origem, alvo=None):
         return fonte
     exemplos = lista["exemplos"]
     normal = mapear_texto(exemplos, unir_hifenizacao=True).texto
+    # "(tais como A, B) interferem na absorção": o efeito vem depois do parêntese.
+    if lista["prefixo"].count("(") > lista["prefixo"].count(")"):
+        return fonte
     if re.search(r"[.!?].*\w|\d|\b(?:nao|sem|exceto|salvo|somente|apenas|se|quando|durante|antes|apos|depois|doses?|pacientes|"
                  r"insuficiencia|diabetes|pode|podem|deve|devem|risco|efeitos?|reaco\w*|sintomas?|"
                  r"associad\w*|aument\w*|redu[cz]\w*|diminu\w*|caus\w*|provoc\w*|ocorr\w*|necess\w*)\b", normal):
@@ -183,7 +239,9 @@ def trechos_com_efeito_repetido(entrada, *, reconstruir=False):
         efeito = re.sub(r"\(\s*vide\s+.+?\s*\)", "", efeito, flags=re.I).strip()
         palavras = [p for p in re.findall(r"\w+|[<>≤≥=]", mapear_texto(efeito, unir_hifenizacao=True).texto) if p not in ignorar]
         partes.append({"condicao": condicao.strip("-• \n"), "efeito": efeito,
-                       "referencias": [r.strip(' \"“”‘’\'') for r in referencias], "palavras": palavras})
+                       # "(vide item “4. Contraindicações”)" vira a seção "4. Contraindicações".
+                       "referencias": [re.sub(r"^(?:(?:sub)?ite(?:m|ns)|se[cç](?:ão|ões))\s+", "", r.strip(' \"“”‘’\''),
+                                              flags=re.I).strip(' \"“”‘’\'') for r in referencias], "palavras": palavras})
     if len(partes[0]["palavras"]) < 6 or any(p["palavras"] != partes[0]["palavras"] for p in partes[1:]):
         return None
     return {"efeito": partes[0]["efeito"], "condicoes": list(dict.fromkeys(p["condicao"] for p in partes)),
@@ -293,13 +351,12 @@ def guia_redacao(texto):
         (r"\bcefaleias\b", "dores de cabeça"),
         (r"\bcefaleia\b", "dor de cabeça"),
         (r"\bfármaco(s?)\b", r"medicamento\1"),
-        (r"\bcoadministr(?:ação|atação)\b", "utilização em conjunto"),
+        (r"\bcoadministratação\b", "utilização em conjunto"),
         (r"\bcontraindicada\s+deviado\s+ao\b", "contraindicada devido ao"),
         (r"\bhipercalemia\b", "níveis altos de potássio no sangue"),
         (r"\bhipocalemia\b", "níveis baixos de potássio no sangue"),
         (r"\befeitos farmacodinâmicos\b", "efeitos no organismo"),
         (r"\bdurante a administração simultânea de\b", "ao usar ao mesmo tempo"),
-        (r"\bclearance(?:\s+plasmático)?\b", "retirada do medicamento do sangue"),
         (r"\b(?:excreção|depuração) renal\b", "eliminação pelos rins"),
         (r"\bsítios de ligação\b", "locais onde esses medicamentos se ligam"),
         (r"\btoxicidade aumentada\b", "aumento dos efeitos prejudiciais"),
@@ -309,6 +366,7 @@ def guia_redacao(texto):
         (r"(?<!\()\bCmax(?:\s+plasmática)?\b", "concentração máxima no sangue (Cmax)"),
     ]:
         texto = re.sub(padrao, troca, texto, flags=re.I)
+    texto = simplificar_termos_tecnicos(texto)
     texto = texto.replace("↓", "redução de ").replace("↑", "aumento de ")
     # O guia mantém a sigla e seus dados; a explicação não substitui a medida.
     texto = re.sub(r"(?<!\()\b(AUC(?:\d+|∞)?)(\s+média)?(?!\w)",

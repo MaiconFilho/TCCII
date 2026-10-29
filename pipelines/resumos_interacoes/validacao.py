@@ -246,6 +246,13 @@ def _normal_simples(texto):
                     r"\1 de", normal)
     for padrao, troca in [
         (r"\b(?:concomitantemente|concomitantes?|simultaneamente)\b", "ao mesmo tempo"),
+        (r"\bcoadministrac(?:ao|oes)\b", "utilizacao em conjunto"),
+        (r"\bcoadministrad([oa]s?)\b", r"usad\1 em conjunto"),
+        (r"\bcoadministrar\b", "usar em conjunto"),
+        (r"(\d\s*)(mg|mcg|g|ui)\s+por\s+metro\s+quadrado\b", r"\1\2/m2"),
+        # "Não esteroidal" é o nome da classe (AINE), não uma negação.
+        (r"\banti-?\s?inflamatorios\s+nao[ -]?esteroid\w*(?:\s*\(\s*aines?\s*\))?", "aines"),
+        (r"\banti-?\s?inflamatorio\s+nao[ -]?esteroid\w*(?:\s*\(\s*aine\s*\))?", "aine"),
         (r"\bconcentrac\w*\s+plasmatic\w*", "quantidade no sangue"),
         (r"\b(?:niveis?|quantidade|concentrac\w*)\s+(?:do medicamento\s+)?no sangue", "quantidade no sangue"),
         (r"\bhepatic\w*\b", "do figado"),
@@ -318,6 +325,10 @@ def _texto_efeito(texto):
     # "Inibidores da ECA/MAO" nomeia classes na lista, não afirma que
     # a interação do alvo reduz o efeito de outro medicamento.
     normal = re.sub(r"\binibidor(?:a|es|as)?\b", "classe", normal)
+    # "Pacientes com risco cardiovascular aumentado" descreve quem usa os
+    # medicamentos, não a direção do efeito da interação.
+    normal = re.sub(r"\b(?:pacientes|individuos|pessoas)\s+com\s+(?:risco(?:\s+[a-z]+){0,2}?\s+(?:aumentad|elevad|alt)[oa]s?\b"
+                    r"|(?:alto|maior|elevado)\s+risco\b)", "populacao qualificada", normal)
     for _, padrao in LIMITES_NUMERICOS:
         normal = padrao.sub("limite numerico", normal)
     return re.sub(r"\b(?:doses?\s+(?:(?:mais|menos)\s+)?(?:baix[ao]s?|alt[ao]s?|elevad[oa]s?|menores?|maiores?|reduzid[oa]s?|aumentad[oa]s?)|"
@@ -346,14 +357,22 @@ def _numeros_clinicos(texto):
         r"\b\d{1,2}\s*[-.)]\s*interacoes medicamentosas\b|\b(?:bm|protocolo)\s+\d{3,}\b", texto))
     # Mês/ano de revisão no rodapé não é dose ou resultado do estudo.
     subtipos.extend(m.span() for m in re.finditer(
-        r"\bprofissional\s*[-–—]\s*(?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\b", texto))
+        r"\bprofissional\)?\s*[-–—]\s*(?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\b", texto))
+    # Marcador de página do PDF ("-27-") também identifica o documento.
+    subtipos.extend(m.span() for m in re.finditer(r"(?:^|(?<=\s))-\s?\d{1,4}\s?-(?=\s|$)", texto))
     # A remissão inteira pode listar vários itens: "ver seções 3, 4 e 5".
-    # Reconhece também subitens após a normalização de pontos decimais.
+    # Reconhece também subitens após a normalização de pontos decimais,
+    # a remissão sem a palavra item ("vide 4.") e a cortada no fim do trecho,
+    # e "item 5"/"seção 4" sem o verbo ('remete à seção "4. Contraindicações"').
     numero_secao = r"\d{1,2}(?:[.,]\d+)*"
+    secao = r"(?:item|itens|subitem|subitens|secao|secoes|subsecao|subsecoes)\s+"
     referencias = [m.span() for m in re.finditer(
-        r"\b(?:veja|vide|ver|consulte)\s+(?:(?:os?|as?)\s+)?"
-        r"(?:item|itens|subitem|subitens|secao|secoes|subsecao|subsecoes)\s+" + numero_secao +
-        r"(?:\s*(?:[,;–-]|\be\b|\ba\b)\s*" + numero_secao + r")*\b", texto)]
+        r"(?:\b(?:veja|vide|ver|consulte)\s+(?:(?:os?|as?)\s+)?(?:" + secao + r")?|\b" + secao + r")[\"']?" +
+        numero_secao + r"(?:\s*(?:[,;–-]|\be\b|\ba\b)\s*" + numero_secao + r")*\b", texto)]
+    # "(vide 4. Contraindicações e 6. Interações ...)": números de seção seguidos do título.
+    for remissao in re.finditer(r"\((?:veja|vide|ver|consulte)\b[^()]{0,120}(?:\)|$)", texto):
+        referencias.extend((remissao.start() + m.start(), remissao.start() + m.end()) for m in re.finditer(
+            r"(?<![\w,])" + numero_secao + r"\.?(?=\s+[a-z\"']|\s*[)\"']|\s*$)", remissao[0]))
     # Uma unidade clínica explícita não vira referência documental apenas
     # por aparecer depois de uma remissão ou junto de uma vírgula.
     from pipelines.identificacao_interacoes.validacao import QUANTIDADE
@@ -433,6 +452,22 @@ def _assinaturas_relacionais(texto, entrada):
                 negado = bool(re.search(r"\b(?:nao|sem)\b(?:\s+\w+){0,2}$", antes_efeito))
                 saida.add((agente, afetado, direcao, negado))
     return saida
+
+
+def _alvo_fora_da_lista(normal, fonte, alvo):
+    """"Com X em crianças que recebem Y ou Z", quando X, Y e Z são a mesma lista da referência."""
+    if not alvo:
+        return False
+    nome = r"(?<!\w)" + re.escape(alvo) + r"(?!\w)"
+    for lista in re.finditer(r"\b(?:como|por exemplo|tais como)\b([^.;()]{0,240})", fonte):
+        if not re.search(nome, lista[1]):
+            continue
+        outros = {m.strip() for m in re.split(r",|\bou\b|\be\b", lista[1]) if 0 < len(m.split()) <= 3} - {alvo}
+        for uso in re.finditer(r"\bque\s+(?:tambem\s+)?(?:estao\s+|estejam\s+)?(?:receb|tom|us|utiliz)\w*([^.;]{0,200})", normal):
+            if not re.search(nome, uso[1]) and sum(
+                    bool(re.search(r"(?<!\w)" + re.escape(o) + r"(?!\w)", uso[1])) for o in outros) >= 2:
+                return True
+    return False
 
 
 def conferir_fidelidade(texto: str, referencia: str, entrada: dict, *, preservar=False, preservar_estudo=True) -> None:
@@ -576,6 +611,9 @@ def conferir_fidelidade(texto: str, referencia: str, entrada: dict, *, preservar
     for padrao in orientacoes:
         if re.search(padrao, normal) and not re.search(padrao, fonte):
             raise RevisaoDaReescrita("Orientação nova sem suporte na referência.")
+    if _alvo_fora_da_lista(normal, fonte, mapear_texto(entrada.get("alvo") or "").texto):
+        raise RevisaoDaReescrita("Condição nova sem suporte na referência: o alvo faz parte da lista; "
+                                 "não exija o uso de outro medicamento dela.")
     for termo in GRAVIDADE.finditer(normal):
         if termo.group(1)[:5] not in fonte:
             raise RevisaoDaReescrita("Gravidade sem suporte na referência: " + termo.group(1))
@@ -704,8 +742,30 @@ def conferir_fidelidade(texto: str, referencia: str, entrada: dict, *, preservar
                 raise RevisaoDaReescrita('Exemplo novo sem suporte na evidência: ' + nome + '. Use apenas os exemplos da própria referência.')
 
 
-def validar_reescrita_original(entrada):
-    """Confere o original antes da inferência, preservando inconsistências para revisão."""
+def referencia_da_reconstrucao(entrada):
+    """Item ou orações do alvo em cada evidência: a mesma referência do prompt."""
+    from .contexto import referencia_do_alvo
+
+    foco = entrada.get("alvo") or tuple(e["alvo"] for e in entrada["evidencias"])
+    return "\n".join(dict.fromkeys(referencia_do_alvo(e["texto"], foco, entrada["origem"], entrada.get("sinonimos") or {})
+                                   for e in entrada["evidencias"]))
+
+
+def nomes_do_alvo(entrada):
+    """Alvo, suas formas sem sal/anotação e os nomes ligados a ele pelo cadastro."""
+    from pipelines.identificacao_interacoes.resolucao import chaves_do_principio, forma_sem_sal
+
+    alvo = entrada.get("alvo") or ""
+    nomes = [alvo, *((entrada.get("sinonimos") or {}).get(alvo) or ())]
+    formas = {forma for nome in nomes for chave in chaves_do_principio(nome) for forma in (chave, forma_sem_sal(chave))}
+    return sorted({mapear_texto(n).texto for n in formas | set(nomes) if n}, key=len, reverse=True)
+
+
+def validar_reescrita_original(entrada, referencia=None):
+    """Confere o original antes da inferência, preservando inconsistências para revisão.
+
+    Com `referencia`, confere contra ela sem outro recorte (reconstrução).
+    """
     from pipelines.identificacao_interacoes.validacao import oracoes_do_alvo
     from pipelines.identificacao_interacoes.resolucao import substancias, forma_sem_sal
 
@@ -729,8 +789,8 @@ def validar_reescrita_original(entrada):
             alvos = re.split(r":|\b(?:que|quando|pode|podem|aument\w*|diminu\w*|redu[cz]\w*)\b|\bem (?:mulheres|pacientes|idosos|uso)\b", trecho)[0]
             if any(re.search(r"(?<!\w)" + re.escape(p) + r"(?!\w)", alvos) for p in principios):
                 raise RevisaoDaReescrita("O geral apresenta um componente do próprio medicamento como alvo; confira o original.")
-    fonte = "\n".join(preparar_fonte_do_alvo(e["texto"], entrada["origem"], entrada.get("alvo"))
-                      for e in entrada["evidencias"])
+    fonte = referencia if referencia is not None else "\n".join(
+        preparar_fonte_do_alvo(e["texto"], entrada["origem"], entrada.get("alvo")) for e in entrada["evidencias"])
     if entrada.get("alvo"):
         # Um resumo que substitui o medicamento identificado na fonte por
         # "outros medicamentos" amplia a relação. Volta à fonte em vez de
@@ -748,7 +808,7 @@ def validar_reescrita_original(entrada):
         # só a oração que cita o alvo descartaria "Efeitos da interação".
         sem_marcador = lambda t: re.sub(r"^\s*[-–•*]\s+(?=[^\W\d_])", "", t)
         literal = _normal_simples(sem_marcador(original)) == _normal_simples(sem_marcador(fonte))
-        if not efeito_do_bloco(fonte) and not literal:
+        if referencia is None and not efeito_do_bloco(fonte) and not literal:
             # Um ponto de extração antes de uma continuação modal sem
             # sujeito ("lista de medicamentos. pode retardar...") não
             # pode separar a lista do efeito. Só a referência de comparação
@@ -846,17 +906,21 @@ def validar_saida_reescrita(resposta, entrada):
 
 
 def validar_saida_reconstrucao(resposta, entrada):
-    """A bula é a referência; o resumo incorreto anterior permanece armazenado."""
+    """A bula é a referência; o resumo incorreto anterior permanece armazenado.
+
+    Todas as conferências usam a mesma referência focada no alvo do prompt.
+    """
     texto = ler_saida_reescrita(resposta, entrada)
-    alvo = mapear_texto(entrada.get("alvo") or "").texto
-    if alvo and not re.search(r"(?<!\w)" + re.escape(alvo) + r"(?!\w)", mapear_texto(texto).texto):
+    normal = mapear_texto(texto).texto
+    if entrada.get("alvo") and not any(re.search(r"(?<!\w)" + re.escape(nome) + r"(?!\w)", normal)
+                                       for nome in nomes_do_alvo(entrada)):
         raise RevisaoDaReescrita("A reconstrução precisa mencionar o alvo da interação.")
+    fonte = referencia_da_reconstrucao(entrada)
     try:
-        validar_reescrita_original({**entrada, "resumo_original": texto})
+        validar_reescrita_original({**entrada, "resumo_original": texto}, referencia=fonte)
     except RevisaoDaReescrita as erro:
         detalhe = str(erro).removeprefix("Resumo original precisa de revisão: ")
         raise RevisaoDaReescrita("Resposta reconstruída não preserva a fonte: " + detalhe) from erro
-    fonte = "\n".join(dict.fromkeys(e["texto"] for e in entrada["evidencias"]))
     conferir_fidelidade(texto, fonte, entrada, preservar=True)
     validar_citacoes(texto, fonte)
     return texto

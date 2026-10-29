@@ -3,11 +3,13 @@
 import hashlib
 import json
 
-VERSAO_REESCRITA = "linguagem-simples/35"
+VERSAO_REESCRITA = "linguagem-simples/36"
+# A 36 reconstrói com a referência focada no alvo (prompt e validação), completa
+# frases cortadas pela bula e troca coadministr*/clearance no acabamento.
 # A 35 acrescenta a retomada dos blocos da reconstrução do resumo geral.
 # Publicações anteriores continuam compatíveis quando fonte, hash e modelo correspondem.
 VERSOES_INDIVIDUAIS = frozenset({"linguagem-simples/25", "linguagem-simples/26"})
-VERSOES_COMPATIVEIS = frozenset({VERSAO_REESCRITA, "linguagem-simples/34", "linguagem-simples/33", "linguagem-simples/32", "linguagem-simples/31", "linguagem-simples/30", "linguagem-simples/29", "linguagem-simples/28", "linguagem-simples/27"}) | VERSOES_INDIVIDUAIS
+VERSOES_COMPATIVEIS = frozenset({VERSAO_REESCRITA, "linguagem-simples/35", "linguagem-simples/34", "linguagem-simples/33", "linguagem-simples/32", "linguagem-simples/31", "linguagem-simples/30", "linguagem-simples/29", "linguagem-simples/28", "linguagem-simples/27"}) | VERSOES_INDIVIDUAIS
 
 
 def hash_dados(dados) -> str:

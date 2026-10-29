@@ -1,6 +1,7 @@
 """Preenche campos de resumo nas tabelas existentes, sem tabelas auxiliares."""
 
 from contextlib import contextmanager
+import time
 
 import psycopg
 from psycopg.rows import dict_row
@@ -48,6 +49,9 @@ def necessita_correcao_geral(fonte, nome=None):
 
 class RepositorioResumos:
     def __init__(self, dsn):
+        self.dsn = dsn
+        # Após reconectar, a sessão anterior pode manter o advisory lock por instantes.
+        self.aguardar_bloqueio = 0.0
         self.conexao = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
         try:
             self.conexao.execute("SELECT resumo_card, resumo_status, resumo_modelo, resumo_tempo_segundos, resumo_erro, resumo_atualizado_em FROM interacoes LIMIT 0")
@@ -61,14 +65,39 @@ class RepositorioResumos:
     def fechar(self):
         self.conexao.close()
 
+    def reconectar(self, *, tentativas=3, espera=5.0, dormir=time.sleep, informar=print) -> bool:
+        """Nova conexão após uma queda, com espera crescente; o lock é reaberto pela bula."""
+        try:
+            self.conexao.close()
+        except psycopg.Error:
+            pass
+        for tentativa in range(1, tentativas + 1):
+            dormir(espera * 2 ** (tentativa - 1))
+            try:
+                self.conexao = psycopg.connect(self.dsn, autocommit=True, row_factory=dict_row)
+            except psycopg.OperationalError as erro:
+                informar(f"  Reconexão {tentativa}/{tentativas} falhou: {type(erro).__name__}.")
+                continue
+            informar(f"  Reconectado na tentativa {tentativa}/{tentativas}.")
+            self.aguardar_bloqueio = espera * 2 ** (tentativas - 1)
+            return True
+        return False
+
     @contextmanager
     def bloquear(self, nome):
         chave = chave_bloqueio(nome)
-        obtido = self.conexao.execute("SELECT pg_try_advisory_lock(%s) AS ok", (chave,)).fetchone()["ok"]
+        consultar = lambda: self.conexao.execute("SELECT pg_try_advisory_lock(%s) AS ok", (chave,)).fetchone()["ok"]
+        obtido = consultar()
+        prazo = time.monotonic() + self.aguardar_bloqueio
+        while not obtido and time.monotonic() < prazo:
+            time.sleep(1)
+            obtido = consultar()
+        self.aguardar_bloqueio = 0.0
         try:
             yield obtido
         finally:
-            if obtido:
+            # Com a conexão perdida, o servidor libera o lock ao encerrar a sessão.
+            if obtido and not (self.conexao.closed or self.conexao.broken):
                 self.conexao.execute("SELECT pg_advisory_unlock(%s)", (chave,))
 
     def selecionar(self, nome=None, limite=1, *, reprocessar=False, antes=None, corrigir_inconsistentes=False):
@@ -220,6 +249,64 @@ def unidades_reescrita(fonte):
     return unidades
 
 
+def _status_publicado(linha):
+    # Só o status publicado decide a retomada (reescrita_salva); o controle inteiro não é lido.
+    return {"publicado": {"status": linha["status_publicado"]}} if linha.get("status_publicado") is not None else {}
+
+
+def _pendente(fonte, reprocessar):
+    return any(reprocessar or not u["concluido"] for u in unidades_reescrita(fonte))
+
+
+def _fonte_da_selecao(p, linhas=()):
+    extras = {"hash_trecho": p["hash_trecho"], "sha256_pdf": p["sha256_pdf"], "principios_ativos": p["principios_ativos"]}
+    linhas = [{**i, **extras, "reescrita_controle": _status_publicado(i)} for i in sorted(linhas, key=lambda i: i["id"])]
+    return {**p, "processamento_id": p["id"], "reescrita_controle": _status_publicado(p),
+            "interacoes": [i for i in linhas if not relacao_nao_positiva(i)]}
+
+
+def pendente_pelo_geral(p, reprocessar=False):
+    """O geral não depende dos cards para decidir: pendente aqui já decide a bula."""
+    return _pendente(_fonte_da_selecao(p), reprocessar)
+
+
+def bulas_pendentes(processamentos, interacoes, *, reprocessar=False, limite=None):
+    """Bulas com alguma unidade pendente, pelo mesmo critério de unidades_reescrita.
+
+    Recebe as linhas lidas em lote, na ordem das bulas, e monta em memória a
+    mesma fonte que `fonte()` montaria para cada uma. Os cards só são filtrados
+    quando o resumo geral da bula não a torna pendente.
+    """
+    por_processamento = {}
+    for linha in interacoes:
+        por_processamento.setdefault(linha["processamento_id"], []).append(linha)
+    nomes = []
+    for p in processamentos:
+        if pendente_pelo_geral(p, reprocessar) or _pendente(
+                _fonte_da_selecao(p, por_processamento.get(p["id"], [])), reprocessar):
+            nomes.append(p["medicamento_origem"])
+            if limite and len(nomes) >= limite:
+                break
+    return nomes
+
+
+def sinonimos_do_cadastro(interacoes, vinculos):
+    """Nomes ligados a cada alvo por interacoes_medicamentos, só de bulas com um princípio ativo.
+
+    Uma associação (vários princípios) não é sinônimo de um dos seus componentes.
+    """
+    from pipelines.identificacao_interacoes.resolucao import substancias
+
+    alvos = {i["id"]: i["alvo"] for i in interacoes}
+    saida = {}
+    for v in vinculos:
+        principios = substancias(v["principios_ativos"])
+        if v["interacao_id"] in alvos and len(principios) == 1:
+            nomes = saida.setdefault(alvos[v["interacao_id"]], set())
+            nomes.update({v["nome_normalizado"], *principios})
+    return {alvo: sorted(nomes) for alvo, nomes in saida.items()}
+
+
 class RepositorioReescrita(RepositorioResumos):
     """Mesma conexão e bloqueio; segunda etapa nunca altera os textos originais."""
 
@@ -254,25 +341,44 @@ class RepositorioReescrita(RepositorioResumos):
     def fonte(self, nome):
         with self.conexao.transaction():
             self.conexao.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            return self._fonte_reescrita(nome)
+            fonte = self._fonte_reescrita(nome)
+            if fonte:
+                # Fora de `entrada`: não altera entrada_hash nem o que a API confere.
+                trecho = self.conexao.execute(
+                    "SELECT trecho_interacoes FROM bulas_interacoes WHERE nome_normalizado=%s", (nome,)).fetchone()
+                vinculos = self.conexao.execute("""
+                    SELECT im.interacao_id, b.nome_normalizado, b.principios_ativos
+                    FROM interacoes_medicamentos im
+                    JOIN bulas b ON b.nome_normalizado=im.medicamento_relacionado
+                    WHERE im.interacao_id=ANY(%s) AND im.invalidado_em IS NULL
+                """, ([i["id"] for i in fonte["interacoes"]],)).fetchall()
+                fonte["apoio"] = {"trecho": trecho["trecho_interacoes"] if trecho else None,
+                                  "sinonimos": sinonimos_do_cadastro(fonte["interacoes"], vinculos)}
+            return fonte
 
     def selecionar(self, nome=None, limite=1, *, reprocessar=False, modelo=None):
-        linhas = self.conexao.execute("""
-            SELECT medicamento_origem FROM processamentos_interacoes_vigentes
-            WHERE status='CONCLUIDO_COM_RELACOES'
-                AND (%s::text IS NULL OR medicamento_origem=%s)
-            ORDER BY medicamento_origem
-        """, (nome, nome)).fetchall()
-        nomes = []
-        for linha in linhas:
-            fonte = self.fonte(linha["medicamento_origem"])
-            unidades = unidades_reescrita(fonte) if fonte else []
-            if any(reprocessar or not u["concluido"]
-                   for u in unidades):
-                nomes.append(linha["medicamento_origem"])
-                if limite and len(nomes) >= limite:
-                    break
-        return nomes
+        """Duas consultas no total; a pendência é decidida em memória por bulas_pendentes."""
+        with self.conexao.transaction():
+            self.conexao.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            processamentos = self.conexao.execute("""
+                SELECT p.id, p.medicamento_origem, p.hash_trecho, p.sha256_pdf, p.resumo_geral,
+                    p.resumo_geral_simples, p.reescrita_controle->'publicado'->>'status' AS status_publicado,
+                    b.principios_ativos
+                FROM processamentos_interacoes_vigentes v
+                JOIN processamentos_interacoes p ON p.id=v.id
+                JOIN bulas b ON b.nome_normalizado=v.medicamento_origem
+                WHERE v.status='CONCLUIDO_COM_RELACOES'
+                    AND (%(nome)s::text IS NULL OR v.medicamento_origem=%(nome)s)
+                ORDER BY v.medicamento_origem
+            """, {"nome": nome}).fetchall()
+            # Cards só das bulas cujo resumo geral não basta para decidir.
+            ids = [p["id"] for p in processamentos if not pendente_pelo_geral(p, reprocessar)]
+            interacoes = self.conexao.execute("""
+                SELECT id, processamento_id, medicamento_origem, alvo, tipo_alvo, evidencia, resumo_card,
+                    resumo_card_simples, reescrita_controle->'publicado'->>'status' AS status_publicado
+                FROM interacoes WHERE processamento_id=ANY(%s)
+            """, (ids,)).fetchall() if ids else []
+        return bulas_pendentes(processamentos, interacoes, reprocessar=reprocessar, limite=limite)
 
     def gravar_progresso_geral(self, nome, unidade, progresso):
         """Guarda blocos aprovados sem publicar um resumo geral incompleto."""
@@ -293,6 +399,9 @@ class RepositorioReescrita(RepositorioResumos):
                 if cursor.rowcount != 1:
                     raise RuntimeError("Não foi possível salvar o progresso do resumo geral.")
         except psycopg.Error as erro:
+            if self.conexao.closed or self.conexao.broken:
+                # Queda de conexão: o chamador interrompe a bula e reconecta.
+                raise
             raise RuntimeError("Erro no banco ao salvar um bloco do resumo geral; o texto completo não foi publicado.") from erro
 
     def gravar_reescrita(self, nome, unidade, texto, controle):
