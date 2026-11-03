@@ -1,11 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { ArrowLeft, ArrowRight, BookOpen, Info, Pill, Search, ShieldAlert } from "lucide-react"
+import { ArrowLeft, ArrowRight, BookOpen, FileText, Info, Pill, Search, ShieldAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { ESTADO, TOM_BADGE } from "@/lib/interacoes-data"
 import { cn } from "@/lib/utils"
 
 const CHAVE_CONCLUSAO = "interamed:guia-concluido"
@@ -23,15 +22,8 @@ const INSTRUCOES = [
   "Em cada resultado, clique em “Ver evidência” para ler o trecho da bula e abrir o documento completo no Bulário Eletrônico.",
 ]
 
-const SITUACOES = [
-  { estado: ESTADO.CONCLUIDO_COM_RELACOES, descricao: "o tópico de interações foi lido e processado." },
-  { estado: ESTADO.REVISAO_NECESSARIA, descricao: "parte do conteúdo aguarda conferência." },
-  { estado: ESTADO.NAO_PROCESSADO, descricao: "a bula está na base, mas ainda não foi processada." },
-  { estado: ESTADO.SEM_TOPICO_INTERACOES, descricao: "a bula não possui essa seção." },
-]
-
 const LIMITACOES = [
-  "Só estão no sistema medicamentos com bula profissional no Bulário Eletrônico da Anvisa. Se o medicamento não tem bula lá, ele não aparece aqui.",
+  "A base do InteraMed é restrita a medicamentos com bula profissional disponível no Bulário Eletrônico da Anvisa.",
   "As bulas foram coletadas até setembro de 2026. Atualizações posteriores da Anvisa podem não estar refletidas, e a inclusão de novos medicamentos está temporariamente indisponível.",
   "Apenas o tópico de interações da bula é analisado. Contraindicações, doses, alimentos, doenças e condições de cada paciente não são considerados.",
   "O sistema não classifica a gravidade das interações.",
@@ -164,13 +156,17 @@ export function GuiaInicial() {
               <p>“Citado na bula de…” indica em qual bula a interação aparece. Basta uma das bulas citar o outro medicamento.</p>
               <p>Os resumos em linguagem simples são gerados automaticamente por um modelo de inteligência artificial. Na dúvida, vale o trecho original da bula.</p>
               <div className="rounded-xl border border-border/70 bg-card/80 p-4">
-                <h3 className="mb-3 font-semibold text-foreground">Situação da bula</h3>
-                <ul className="space-y-3">
-                  {SITUACOES.map(({ estado, descricao }) => <li key={estado.rotulo}>
-                    <Badge variant="outline" className={cn("mb-1 rounded-full", TOM_BADGE[estado.tom])}>{estado.rotulo}</Badge>
-                    <p className="text-xs">{descricao}</p>
-                  </li>)}
-                </ul>
+                <h3 className="font-semibold text-foreground">Exemplo de leitura</h3>
+                <Badge variant="outline" className="mt-2 rounded-full border-blue-200 bg-blue-50 text-blue-700">Exemplo ilustrativo</Badge>
+                <div className="mt-3 rounded-lg border border-border/70 bg-muted/30 p-3">
+                  <p className="font-semibold text-foreground">Medicamento A × Medicamento B</p>
+                  <p className="mt-1 text-xs font-medium text-blue-700">Citado na bula de Medicamento A</p>
+                  <p className="mt-2">Nesse exemplo, a interação foi encontrada na bula do medicamento A, que menciona o medicamento B.</p>
+                </div>
+                <p className="mt-3 flex items-start gap-2 text-xs">
+                  <FileText className="mt-0.5 size-4 shrink-0 text-blue-600" aria-hidden="true" />
+                  <span>No resultado, use <strong className="font-semibold text-foreground">“Ver evidência”</strong> para conferir o trecho original e acessar a bula no Bulário Eletrônico.</span>
+                </p>
               </div>
             </>}
             {passo === 3 && <>
