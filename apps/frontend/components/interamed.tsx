@@ -331,14 +331,14 @@ function JanelaEvidencia({ detalhe, onClose }: { detalhe: DetalheEvidencia | nul
                 <p className="text-muted-foreground">
                   {bulas.length === 1 ? [
                     formatarData(detalhe.fonte.data_publicacao_bula) && `Publicada em ${formatarData(detalhe.fonte.data_publicacao_bula)}`,
-                    detalhe.fonte.numero_registro && `Registro ${detalhe.fonte.numero_registro}`,
+                    detalhe.fonte.expediente && `Expediente ${detalhe.fonte.expediente}`,
                   ].filter(Boolean).join(" · ") : bulas.map((b) => nomeLegivel(b.medicamento.nome_exibicao)).join(" · ")}
                 </p>
               </div>
             </div>
             <div className="flex shrink-0 flex-nowrap gap-2">
               <Button variant="outline" onClick={onClose}>Fechar</Button>
-              {bulas.map((b) => <a key={b.medicamento.nome_normalizado} className={cn(buttonVariants(), "bg-blue-600 hover:bg-blue-700")} href={bulaUrl(b.medicamento.nome_exibicao)} target="_blank" rel="noopener noreferrer"><Download className="size-4" />{bulas.length === 1 ? "Consultar no Bulário" : `Bula de ${nomeLegivel(b.medicamento.nome_exibicao)}`}</a>)}
+              {bulas.map((b) => <a key={b.medicamento.nome_normalizado} className={cn(buttonVariants(), "bg-blue-600 hover:bg-blue-700")} href={bulaUrl(b.medicamento.nome_exibicao, b.expediente)} target="_blank" rel="noopener noreferrer"><Download className="size-4" />{bulas.length === 1 ? "Consultar no Bulário" : `Bula de ${nomeLegivel(b.medicamento.nome_exibicao)}`}</a>)}
             </div>
           </DialogFooter>
         </DialogContent>
