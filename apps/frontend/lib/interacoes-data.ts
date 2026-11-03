@@ -4,9 +4,9 @@ import type { CriterioVinculo, EstadoAnalise, EvidenciaPar } from "@/lib/api"
 
 export const ANVISA_BULARIO_URL = "https://consultas.anvisa.gov.br/#/bulario/"
 
-/** Link para a busca do medicamento no Bulário da Anvisa. */
-export const bulaUrl = (nomeProduto: string) =>
-  `https://consultas.anvisa.gov.br/#/bulario/q/?nomeProduto=${encodeURIComponent(fold(nomeProduto).trim())}`
+/** Busca a bula pelo nome e, quando disponível, pelo expediente da fonte analisada. */
+export const bulaUrl = (nomeProduto: string, expediente?: string | null) =>
+  `https://consultas.anvisa.gov.br/#/bulario/q/?nomeProduto=${encodeURIComponent(fold(nomeProduto).trim())}${expediente?.trim() ? `&expediente=${encodeURIComponent(expediente.trim())}` : ""}`
 
 export const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
 
