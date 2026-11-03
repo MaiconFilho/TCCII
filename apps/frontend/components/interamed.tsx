@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { GuiaInicial } from "@/components/guia-inicial"
 import {
   AlertTriangle, ArrowLeftRight, ArrowRight, BookOpen, Download, FileText, HelpCircle, Info, Link2, Loader2,
   Pill, Quote, Search, ShieldCheck, Sparkles, WifiOff, X,
@@ -858,6 +859,7 @@ export default function InteraMed() {
             <div className="flex size-8 items-center justify-center rounded-lg bg-blue-600"><Pill className="size-4 text-white" /></div>
             <span className="text-[17px] font-semibold tracking-tight">InteraMed</span>
           </div>
+          <GuiaInicial />
         </div>
       </header>
 

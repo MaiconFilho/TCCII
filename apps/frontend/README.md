@@ -15,6 +15,12 @@ O hero usa uma superfície pontilhada animada em Three.js. A animação respeita
 `prefers-reduced-motion`, e o layout mantém a largura original em zoom de 100%,
 expandindo conteúdo e tipografia quando o zoom do navegador é reduzido.
 
+O guia inicial abre automaticamente uma vez por aba/sessão, até a conclusão
+registrada em `sessionStorage` na chave `interamed:guia-concluido`. Na abertura
+automática, só o botão final fecha o guia, após 5 segundos de leitura da tela de
+limitações com a aba visível; voltar preserva a contagem. O botão **Como usar**
+no cabeçalho reabre o guia desde o início, sem espera e com fechamento livre.
+
 - **Busca de um medicamento**: resumo geral de 2 a 3 parágrafos sobre as interações
   da própria bula. “Ver detalhes” abre os cards e a paginação. Não inclui outras
   bulas. Sem resumo gerado, informa a indisponibilidade e mantém os detalhes.
