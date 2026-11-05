@@ -11,8 +11,6 @@ export function paresDeMedicamentos(medicamentos: Medicamento[]): [Medicamento, 
   return pares
 }
 
-const palavras = (texto: string) => new Set(fold(texto).match(/[a-z0-9]+/g) ?? [])
-
 /**
  * Como uma evidência ligou os dois medicamentos comparados: a bula que contém
  * o trecho, o nome citado e o medicamento comparado que tem esse nome entre os
@@ -42,17 +40,14 @@ export function ligacaoDaEvidencia(dados: RespostaPar, evidencia: EvidenciaPar):
 export function montarLigacao(
   origem: Medicamento,
   vinculado: Medicamento,
-  itens: { alvo: string; fundamento_vinculo?: string | null }[],
+  itens: { alvo: string }[],
 ): Ligacao {
   const componentes = vinculado.principios_ativos ?? []
-  // O componente corresponde ao princípio do cadastro que fundamentou o vínculo,
-  // ou contém todas as palavras do nome citado ("varfarina" em "varfarina sódica").
-  const corresponde = (componente: string) => itens.some((item) => {
-    if (item.fundamento_vinculo && fold(item.fundamento_vinculo.trim()) === fold(componente.trim())) return true
-    const doCitado = palavras(item.alvo)
-    const doComponente = palavras(componente)
-    return doCitado.size > 0 && [...doCitado].every((p) => doComponente.has(p))
-  })
+  // Somente igualdade textual comprova qual componente foi citado.
+  // O crit?rio gravado continua vis?vel; equival?ncia de sais/composi??o n?o
+  // atribui automaticamente a evid?ncia aos demais componentes.
+  const corresponde = (componente: string) => itens.some((item) =>
+    fold(item.alvo.trim()) === fold(componente.trim()))
   const componentesCitados = componentes.filter(corresponde)
   return {
     origem,

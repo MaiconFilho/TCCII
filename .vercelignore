@@ -5,3 +5,9 @@ pipelines/conversao_interacoes_vetores/
 **/tests/
 .github/
 **/__pycache__/
+
+**/.env
+**/.env.local
+**/.env.supabase
+.vercel/
+.git/

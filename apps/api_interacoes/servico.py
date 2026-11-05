@@ -63,16 +63,10 @@ MENSAGENS_ESTADO = {
     ),
     EstadoAnalise.EM_PROCESSAMENTO: "A bula está sendo analisada agora.",
     EstadoAnalise.NAO_PROCESSADO: "A bula ainda não foi analisada.",
-    EstadoAnalise.DESATUALIZADO: (
-        "Há análise apenas de uma versão anterior do texto ou da bula; ela não é exibida."
-    ),
     EstadoAnalise.RETIRADO: (
         "A análise da versão atual foi retirada após erro reconhecido; nenhum resultado é exibido."
     ),
     EstadoAnalise.FALHA: "A última análise da versão atual falhou; nenhum resultado concluído disponível.",
-    EstadoAnalise.FONTE_INCOERENTE: (
-        "Os identificadores da extração não correspondem à bula atual; a análise não é exibida."
-    ),
     EstadoAnalise.SEM_TOPICO_INTERACOES: (
         "A extração não localizou o tópico de interações nesta bula; não há conclusão."
     ),
@@ -81,6 +75,11 @@ MENSAGENS_ESTADO = {
 }
 # Somente estes estados permitem a conclusão negativa "nas fontes analisadas".
 CONCLUSIVOS = {EstadoAnalise.CONCLUIDO_COM_RELACOES, EstadoAnalise.CONCLUIDO_SEM_RELACOES}
+
+
+def analise_conclusiva(analise: AnaliseBula, situacao: dict) -> bool:
+    return analise.estado in CONCLUSIVOS and (
+        analise.estado == EstadoAnalise.CONCLUIDO_SEM_RELACOES or bool(situacao.get('tem_mencoes')))
 
 
 MENSAGEM_MENCAO = (
@@ -129,16 +128,12 @@ def estado_da_situacao(situacao: dict, em_processamento: bool) -> EstadoAnalise:
         return EstadoAnalise.SEM_TOPICO_INTERACOES
     if situacao.get("status_extracao") != "CONCLUIDO" or not situacao.get("tem_texto"):
         return EstadoAnalise.EXTRACAO_INDISPONIVEL
-    if not situacao.get("extracao_coerente"):
-        return EstadoAnalise.FONTE_INCOERENTE
-    if situacao.get("ultimo_status_fonte_atual") == "FALHA":
+    if situacao.get("ultimo_status") == "FALHA":
         return EstadoAnalise.FALHA
-    if situacao.get("ultimo_status_fonte_atual") == "REVISAO_NECESSARIA":
+    if situacao.get("ultimo_status") == "REVISAO_NECESSARIA":
         return EstadoAnalise.REVISAO_NECESSARIA
-    if situacao.get("tem_retirada_fonte_atual"):
+    if situacao.get("tem_retirada"):
         return EstadoAnalise.RETIRADO
-    if situacao.get("tem_historico"):
-        return EstadoAnalise.DESATUALIZADO
     return EstadoAnalise.NAO_PROCESSADO
 
 
@@ -148,19 +143,11 @@ def _fonte(linha: dict, medicamento: Medicamento) -> FonteBula:
         medicamento=medicamento,
         numero_registro=linha["numero_registro"],
         expediente=linha["expediente"],
-        sha256_pdf=linha["sha256_pdf"],
-        data_publicacao_bula=linha["data_publicacao_anvisa"],
     )
 
 
 def _fonte_processada(situacao: dict, medicamento: Medicamento) -> FonteBula:
-    return FonteBula(
-        medicamento=medicamento,
-        numero_registro=situacao["registro_processado"],
-        expediente=situacao["expediente_processado"],
-        sha256_pdf=situacao["sha256_processado"],
-        data_publicacao_bula=situacao["publicacao_processada"],
-    )
+    return _fonte(situacao, medicamento)
 
 
 def _processamento(linha: dict) -> Processamento:
@@ -305,7 +292,7 @@ class ServicoConsulta:
         cobertura = self.cobertura()
         if total_interacoes > 0:
             identificada, mensagem = True, MENSAGEM_POSITIVA
-        elif analise.estado in CONCLUSIVOS:
+        elif analise_conclusiva(analise, _situacao):
             identificada, mensagem = False, MENSAGEM_NEGATIVA
         else:
             identificada, mensagem = None, MENSAGEM_INCOMPLETA
@@ -379,9 +366,6 @@ class ServicoConsulta:
                     resumo_card=linha.get("resumo_card"),
                     resumo_card_simples=linha.get("resumo_card_simples"),
                     criterio_vinculo=linha.get("criterio_vinculo"),
-                    fundamento_vinculo=(
-                        linha.get("fundamento_vinculo") if linha.get("criterio_vinculo") is not None else None
-                    ),
                 )
             # IDs distintos podem conter exatamente a mesma citação, alvo,
             # efeito e vínculo. Preserve efeitos/condições diferentes.
@@ -394,7 +378,7 @@ class ServicoConsulta:
             ):
                 destino[chave].itens.append(item)
 
-        completa = analise_a.estado in CONCLUSIVOS and analise_b.estado in CONCLUSIVOS
+        completa = analise_conclusiva(analise_a,situacao_a) and analise_conclusiva(analise_b,situacao_b)
         if especificas:
             identificada, mensagem = True, MENSAGEM_POSITIVA
         elif mencoes:

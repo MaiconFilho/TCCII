@@ -1,12 +1,12 @@
 """Persistência da identificação no PostgreSQL (psycopg 3).
 
-- O esquema é criado somente pelas migrações (``migracoes/``); este módulo
+- O esquema usa a baseline/migração explícita de ``banco/``; este módulo
   apenas confere que ele existe.
 - Processos independentes são coordenados por medicamento com advisory locks
   do PostgreSQL: um bloqueio de sessão durante a inferência e um bloqueio de
   transação na gravação.
 - A gravação ocorre em uma única transação curta, depois da inferência, com
-  a fonte revalidada (texto, registro, expediente e PDF). Nada parcial é
+  a fonte revalidada em memória (texto, registro e expediente). Nada parcial é
   gravado; uma falha registra apenas a linha de controle.
 - Nenhum método executa DELETE: vínculos que deixam de valer recebem
   ``invalidado_em``.
@@ -50,11 +50,10 @@ OBJETOS_MIGRACAO = (
 )
 COLUNAS_BULAS = (
     "nome_normalizado", "nome_anvisa", "principios_ativos", "composicao",
-    "numero_registro", "expediente", "sha256_pdf", "id_produto",
-    "data_publicacao_anvisa", "status",
+    "numero_registro", "expediente", "status",
 )
 COLUNAS_BULAS_INTERACOES = (
-    "nome_normalizado", "numero_registro", "expediente", "trecho_interacoes", "status_extracao",
+    "nome_normalizado", "trecho_interacoes", "status_extracao",
 )
 TEMPO_ESPERA_BLOQUEIO = "10s"
 
@@ -68,12 +67,7 @@ SQL_FONTES = f"""
         bi.trecho_interacoes,
         b.numero_registro,
         b.expediente,
-        b.sha256_pdf,
-        b.id_produto,
-        b.data_publicacao_anvisa,
-        {SQL_HASH_TRECHO} AS hash_trecho_banco,
-        (bi.numero_registro IS NOT DISTINCT FROM b.numero_registro
-         AND bi.expediente IS NOT DISTINCT FROM b.expediente) AS identificadores_coerentes
+        {SQL_HASH_TRECHO} AS hash_trecho_banco
     FROM bulas_interacoes AS bi
     JOIN bulas AS b ON b.nome_normalizado = bi.nome_normalizado
     WHERE bi.status_extracao = 'CONCLUIDO'
@@ -252,10 +246,9 @@ class RepositorioIdentificacao:
                     self._bloquear_transacao(cursor, linha['medicamento_origem'], esperar=True)
                     cursor.execute("""
                         UPDATE processamentos_interacoes
-                        SET invalidado_em = COALESCE(invalidado_em, NOW()),
-                            motivo_invalidacao = COALESCE(motivo_invalidacao, %s)
+                        SET invalidado_em = COALESCE(invalidado_em, NOW())
                         WHERE id = %s
-                    """, (motivo.strip(), processamento_id))
+                    """, (processamento_id,))
         except ValueError:
             raise
         except Exception as erro:
@@ -302,11 +295,8 @@ class RepositorioIdentificacao:
             SELECT
                 bi.status_extracao,
                 {SQL_HASH_TRECHO} AS hash_trecho,
-                bi.numero_registro AS registro_extracao,
-                bi.expediente AS expediente_extracao,
                 b.numero_registro,
-                b.expediente,
-                b.sha256_pdf
+                b.expediente
             FROM bulas AS b
             JOIN bulas_interacoes AS bi ON bi.nome_normalizado = b.nome_normalizado
             WHERE b.nome_normalizado = %s
@@ -325,14 +315,9 @@ class RepositorioIdentificacao:
         for campo, valor in (
             ("numero_registro", fonte.numero_registro),
             ("expediente", fonte.expediente),
-            ("sha256_pdf", fonte.sha256_pdf),
         ):
             if atual[campo] != valor:
                 divergencias.append(f"{campo} alterado")
-        if (atual["registro_extracao"], atual["expediente_extracao"]) != (
-            atual["numero_registro"], atual["expediente"]
-        ):
-            divergencias.append("extração incoerente com a bula")
         if divergencias:
             raise FonteAlteradaError(
                 "A fonte mudou desde a seleção: " + "; ".join(divergencias) + "."
@@ -356,13 +341,11 @@ class RepositorioIdentificacao:
             """
             INSERT INTO processamentos_interacoes (
                 medicamento_origem, status, versao_processamento, modelo,
-                hash_trecho, caracteres_trecho, numero_registro, expediente,
-                sha256_pdf, id_produto, data_publicacao_anvisa,
                 quantidade_janelas, janelas_concluidas, quantidade_relacoes,
                 quantidade_rejeicoes, chamadas_llm, tempo_inferencia_segundos,
-                tempo_total_segundos, pico_memoria_mb, detalhe, iniciado_em
+                tempo_total_segundos, pico_memoria_mb, concluido_em
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -370,13 +353,6 @@ class RepositorioIdentificacao:
                 status.value,
                 versao,
                 modelo,
-                fonte.hash_trecho,
-                len(fonte.trecho_interacoes or ""),
-                fonte.numero_registro,
-                fonte.expediente,
-                fonte.sha256_pdf,
-                fonte.id_produto,
-                fonte.data_publicacao_anvisa,
                 resultado.quantidade_janelas if resultado else 0,
                 resultado.janelas_concluidas if resultado else 0,
                 relacoes,
@@ -385,8 +361,7 @@ class RepositorioIdentificacao:
                 round(resultado.tempo_inferencia_segundos, 3) if resultado else None,
                 round(tempo_total_segundos, 3),
                 round(resultado.pico_memoria_mb, 1) if resultado else None,
-                (detalhe or None) and detalhe[:2000],
-                iniciado_em,
+                datetime.now().astimezone(),
             ),
         )
         return int(cursor.fetchone()["id"])
@@ -455,21 +430,17 @@ class RepositorioIdentificacao:
                                 """
                                 INSERT INTO interacoes_medicamentos (
                                     interacao_id, medicamento_relacionado,
-                                    criterio_vinculo, fundamento_vinculo
+                                    criterio_vinculo
                                 )
-                                VALUES (%s, %s, %s, %s)
+                                VALUES (%s, %s, %s)
                                 ON CONFLICT (interacao_id, medicamento_relacionado) DO NOTHING
                                 """,
                                 [
-                                    (interacao_id, nome, vinculo.criterio.value, vinculo.fundamento[:2000])
+                                    (interacao_id, nome, vinculo.criterio.value)
                                     for nome, vinculo in unicos.items()
                                 ],
                             )
                             total_vinculos += len(unicos)
-                    cursor.execute(
-                        "UPDATE processamentos_interacoes SET quantidade_vinculos = %s WHERE id = %s",
-                        (total_vinculos, processamento_id),
-                    )
         except (FonteAlteradaError, ProcessamentoJaExisteError):
             raise
         except Exception as erro:
@@ -565,7 +536,7 @@ class RepositorioIdentificacao:
                     cursor.execute(
                         """
                         SELECT interacao_id, medicamento_relacionado, criterio_vinculo,
-                               fundamento_vinculo, invalidado_em
+                               invalidado_em
                         FROM interacoes_medicamentos
                         WHERE interacao_id = ANY(%s)
                         FOR UPDATE
@@ -588,30 +559,27 @@ class RepositorioIdentificacao:
                                 """
                                 INSERT INTO interacoes_medicamentos (
                                     interacao_id, medicamento_relacionado,
-                                    criterio_vinculo, fundamento_vinculo
+                                    criterio_vinculo
                                 )
-                                VALUES (%s, %s, %s, %s)
+                                VALUES (%s, %s, %s)
                                 ON CONFLICT (interacao_id, medicamento_relacionado) DO NOTHING
                                 """,
-                                (*chave, vinculo.criterio.value, vinculo.fundamento[:2000]),
+                                (*chave, vinculo.criterio.value),
                             )
                             contagem["criados"] += cursor.rowcount
                             continue
                         mudou = (
                             atual["criterio_vinculo"] != vinculo.criterio.value
-                            or atual["fundamento_vinculo"] != vinculo.fundamento[:2000]
                         )
                         if atual["invalidado_em"] is not None or mudou:
                             cursor.execute(
                                 """
                                 UPDATE interacoes_medicamentos
                                 SET criterio_vinculo = %s,
-                                    fundamento_vinculo = %s,
-                                    invalidado_em = NULL,
-                                    vinculado_em = NOW()
+                                    invalidado_em = NULL
                                 WHERE interacao_id = %s AND medicamento_relacionado = %s
                                 """,
-                                (vinculo.criterio.value, vinculo.fundamento[:2000], *chave),
+                                (vinculo.criterio.value, *chave),
                             )
                             chave_contagem = "reativados" if atual["invalidado_em"] is not None else "atualizados"
                             contagem[chave_contagem] += 1

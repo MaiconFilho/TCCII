@@ -44,7 +44,6 @@ def fonte(texto: str, **alteracoes) -> FonteInteracoes:
         "trecho_interacoes": texto,
         "numero_registro": "100",
         "expediente": "200",
-        "sha256_pdf": "abc",
     }
     valores.update(alteracoes)
     return FonteInteracoes(**valores)

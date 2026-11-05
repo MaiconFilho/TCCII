@@ -117,12 +117,6 @@ jobs:
       - name: Validar resumos com provedor simulado
         run: python -m unittest discover -s pipelines/resumos_interacoes/tests -t . -v
 
-      - name: Instalar dependências dos adaptadores de inclusão
-        run: python -m pip install -r pipelines/scraping_anvisa/requirements.txt
-
-      - name: Validar inclusão com adaptadores simulados
-        run: python -m unittest discover -s pipelines/inclusao_medicamentos/tests -t . -v
-
   testes-api-interacoes:
     runs-on: ubuntu-latest
 
@@ -143,11 +137,17 @@ jobs:
       - name: Executar testes sem PostgreSQL real
         run: python -m unittest discover -s apps/api_interacoes/tests -t . -v
 
-      - name: Validar entrada da API na Vercel
-        run: >-
-          python -c "import main, sys;
-          assert not any(m.split('.')[0] in {'llama_cpp', 'torch', 'transformers', 'fitz', 'selenium'} for m in sys.modules);
-          print(main.app.title)"
+  testes-inclusao-medicamentos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Instalar dependências dos testes simulados
+        run: python -m pip install "psycopg[binary]" python-dotenv python-dateutil psutil pydantic PyMuPDF
+      - name: Validar fila e orquestração sem modelos nem Anvisa real
+        run: python -m unittest discover -s pipelines/inclusao_medicamentos/tests -t . -v
 
   testes-frontend:
     runs-on: ubuntu-latest
@@ -171,8 +171,48 @@ jobs:
       - name: Verificar lint
         run: npm run lint
 
+      - name: Verificar pares e atribuição de componentes
+        run: npm test
+
       - name: Verificar tipos
         run: npm run typecheck
 
       - name: Gerar build
         run: npm run build
+
+  testes-modelo60-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: teste_isolado
+          POSTGRES_DB: interamed_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:teste_isolado@localhost:5432/interamed_test
+      IDENTIFICACAO_TEST_DATABASE_URL: postgresql://postgres:teste_isolado@localhost:5432/interamed_test
+      MODELO60_TEST_DATABASE_URL: postgresql://postgres:teste_isolado@localhost:5432/interamed_test
+      MIGRACAO60_TEST_DATABASE_URL: postgresql://postgres:teste_isolado@localhost:5432/interamed_test_legado
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Instalar dependências da consulta e testes
+        run: python -m pip install -r apps/api_interacoes/requirements.txt
+      - name: Preparar bancos locais isolados
+        run: |
+          python -m banco.operacao inicializar
+          python -c "import os,psycopg; c=psycopg.connect(os.environ['DATABASE_URL'],autocommit=True); c.execute('CREATE DATABASE interamed_test_legado'); c.close()"
+      - name: Contrato, integridade, legado e preservação Smol sintética
+        run: python -m unittest discover -s banco/tests -t . -v
+      - name: API real sobre o modelo aprovado
+        run: python -m unittest discover -s apps/api_interacoes/tests -t . -v

@@ -34,12 +34,8 @@ class ConfiguracaoApi:
     cache_cobertura_segundos: int = 60
     host: str = "127.0.0.1"
     porta: int = 8000
-    dsn_solicitacoes: str = ''
-    modelo_vetores: str = 'intfloat/multilingual-e5-small'
     inclusao_habilitada: bool = False
-    trabalhador_automatico: bool = True
-    python_trabalhador: str = ''
-    dsn_trabalhador: str = ''
+    manutencao: bool = False
 
     @classmethod
     def do_ambiente(cls) -> "ConfiguracaoApi":
@@ -50,12 +46,12 @@ class ConfiguracaoApi:
         )
         if "*" in origens:
             raise ValueError("API_CORS_ORIGINS deve listar origens explícitas, sem '*'.")
-        automatico = os.getenv('API_WORKER_AUTOSTART', 'true').strip().lower()
-        if automatico not in ('true', '1', 'false', '0'):
-            raise ValueError('API_WORKER_AUTOSTART deve conter true ou false.')
         inclusao = os.getenv('API_INCLUSAO_MEDICAMENTOS', 'false').strip().lower()
         if inclusao not in ('true', '1', 'false', '0'):
             raise ValueError('API_INCLUSAO_MEDICAMENTOS deve conter true ou false.')
+        manutencao = os.getenv('API_MANUTENCAO', 'false').strip().lower()
+        if manutencao not in ('true', '1', 'false', '0'):
+            raise ValueError('API_MANUTENCAO deve conter true ou false.')
         limite_maximo = _inteiro("API_AUTOCOMPLETE_LIMITE_MAXIMO", 20, 1, 50)
         return cls(
             dsn=os.getenv("DATABASE_URL", "").strip(),
@@ -71,10 +67,6 @@ class ConfiguracaoApi:
             cache_cobertura_segundos=_inteiro("API_CACHE_COBERTURA_SEGUNDOS", 60, 0, 3600),
             host=os.getenv("API_HOST", "127.0.0.1").strip(),
             porta=_inteiro("API_PORT", 8000, 1, 65535),
-            dsn_solicitacoes=os.getenv('SOLICITACOES_DATABASE_URL', '').strip(),
-            modelo_vetores=os.getenv('EMBEDDING_MODEL_ID', 'intfloat/multilingual-e5-small').strip(),
             inclusao_habilitada=inclusao in ('true', '1'),
-            trabalhador_automatico=automatico in ('true', '1'),
-            python_trabalhador=os.getenv('API_WORKER_PYTHON', '').strip(),
-            dsn_trabalhador=os.getenv('API_WORKER_DATABASE_URL', '').strip(),
+            manutencao=manutencao in ('true', '1'),
         )

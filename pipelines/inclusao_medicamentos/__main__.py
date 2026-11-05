@@ -1,4 +1,8 @@
 """Trabalhador único, reservado no PostgreSQL; filhos liberam pesos ao terminar."""
+
+if __name__ == "__main__":
+    raise SystemExit('Módulo experimental retirado do fluxo do modelo60; nenhum schema ou dado foi alterado.')
+
 import argparse
 import json
 import logging
@@ -192,7 +196,3 @@ def main(argv=None):
             if args.uma_vez:
                 return 0
             time.sleep(intervalo)
-
-
-if __name__ == '__main__':
-    raise SystemExit(main())
