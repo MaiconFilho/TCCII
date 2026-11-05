@@ -51,6 +51,15 @@ reduzir rajadas de requisições.
 O modo headless foi bloqueado nos testes reais. Use o Chrome visível e minimize
 a janela se necessário.
 
+Em 21/10/2026, a pedido do usuário, a abertura da sessão e os scripts de consulta
+e download foram restaurados à versão do commit `ac90869` (01/09/2026). A
+comparação confirmou igualdade de `navegador.py` e dos dois scripts JavaScript.
+O perfil padrão da inclusão voltou a ser `.chrome-profile-anvisa`, o mesmo deste
+scraper. A integração automática equivale à opção `--sem-pausa-inicial` existente:
+não exige ENTER no terminal. Os controles de fila e as mensagens de erro da
+inclusão permanecem. Essa restauração não garante que o serviço externo ainda
+aceite as requisições que aceitava na coleta de setembro.
+
 ## Estrutura
 
 ```text
@@ -71,22 +80,11 @@ consultar_metricas.sql consultas prontas para análise dos tempos
 
 ## 1. Criar o banco PostgreSQL
 
-O PostgreSQL precisa estar instalado e em execução.
-
-No pgAdmin, conecte-se ao banco padrão `postgres`, abra o **Query Tool** e
-execute:
-
-```sql
-CREATE DATABASE "TCC";
-```
-
-Depois, abra o **Query Tool conectado ao banco `TCC`** e execute a etapa 2 de
-[criar_banco.sql](criar_banco.sql). Ela cria `bulas`, incluindo `principios_ativos`
-e `composicao` como `TEXT`, e `bulas_interacoes`, com as métricas de extração.
-Não execute as duas etapas na mesma conexão ao banco `postgres`.
-
-A aplicação também cria e documenta `bulas` automaticamente quando necessário.
-O script é de criação inicial; não migra tabelas já existentes.
+Crie um banco vazio por ferramenta administrativa e use
+`python -m banco.operacao inicializar --env caminho/banco-local.env`.
+O arquivo `criar_banco.sql` também contém a baseline completa de cinco tabelas/60
+campos. Não o execute sobre base existente; para atualização, siga
+[banco/README.md](../../banco/README.md). O coletor não executa DDL no construtor.
 
 ## 2. Configurar a conexão
 
@@ -140,79 +138,22 @@ python main.py --inicio 0 --limite 50 --intervalo 7 --sem-pausa-inicial
 Os argumentos continuam iguais, mas agora `--inicio` e `--limite` atuam
 sobre a lista de **nomes únicos**, não sobre as 8.808 linhas originais.
 
-## Controle no PostgreSQL
+## Controle no PostgreSQL e retomada
 
-A chave primária da tabela é `nome_normalizado`. Para cada nome, são gravados:
+`bulas` tem os nove campos do [modelo aprovado](../../banco/modelo.sql): nome
+normalizado, nome Anvisa, registro, expediente, princípios ativos, composição,
+status, tentativas e tempo total. IDs do portal, publicação usada na seleção,
+caminho/hash/tamanho de PDF e tempos parciais são dados transitórios da coleta,
+sem colunas equivalentes no banco final. Erros detalhados ficam nos logs da execução.
 
-- nome normalizado e nome retornado pela Anvisa;
-- quantidade de ocorrências daquele nome na planilha;
-- registro, expediente e ID do produto selecionado;
-- ID protegido da bula profissional;
-- data de publicação usada na seleção;
-- status, tentativas e mensagem de erro;
-- caminho, tamanho e hash SHA-256 do PDF.
-- tempo da consulta, do download e do processamento total.
+Um cadastro `CONCLUIDO` é ignorado mesmo se o PDF não estiver neste computador:
+a base é fixa, sem atualização automática. Itens não concluídos podem recuperar
+PDF local pelo nome determinístico e tentar novamente. O diretório do coletor é
+configurável; a extração usa `INTERAMED_PDF_DIR` com a mesma localização.
 
-Os campos de métricas possuem comentários gravados no catálogo do PostgreSQL.
-As definições são:
-
-- `tempo_consulta_segundos`: paginação, leitura das respostas e seleção da bula
-  com maior data de publicação (`data` na API);
-- `tempo_download_segundos`: transferência e recebimento do PDF;
-- `tempo_total_segundos`: consulta, verificação de reaproveitamento ou download,
-  validação e salvamento do arquivo.
-
-Exemplo para consultar as métricas:
-
-```sql
-SELECT
-    nome_normalizado,
-    tempo_consulta_segundos,
-    tempo_download_segundos,
-    tempo_total_segundos
-FROM bulas
-ORDER BY tempo_total_segundos DESC;
-```
-
-O arquivo `consultar_metricas.sql` contém consultas adicionais para calcular
-médias, mínimos, máximos e distribuição por status.
-
-Um item só é ignorado quando possui status `CONCLUIDO` no PostgreSQL e o PDF
-existe no caminho registrado. Se o arquivo for apagado, será baixado novamente.
-
-Status possíveis:
-
-- `CONCLUIDO`
-- `NOME_NAO_ENCONTRADO`
-- `DATA_PUBLICACAO_INVALIDA`
-- `SEM_BULA_PROFISSIONAL`
-- `ERRO_RESPOSTA`
-- `ERRO_INESPERADO`
-- `LIMITE_REQUISICOES`
-- `INTERROMPIDO_BLOQUEIO`
-
-O relatório legível é exportado para `controle/resultado.csv`.
-
-## Retomada e novas tentativas
-
-Se a execução for interrompida, execute novamente o mesmo comando. Nomes
-concluídos serão ignorados e os demais serão tentados novamente.
-
-Registros com status `CONCLUIDO` e PDF existente são sempre ignorados, sem exigir
-uma nova consulta. Se uma falha anterior removeu o caminho do banco, mas o PDF
-válido ainda existe com o nome determinístico esperado, a aplicação recupera o
-arquivo no PostgreSQL e também evita um novo download.
-
-Somente a data de publicação usada para selecionar a bula mais recente é gravada
-no banco. Os valores auxiliares originais retornados pela API não são persistidos.
-
-```cmd
-python main.py --inicio 0 --limite 4000 --intervalo 10 --sem-pausa-inicial
-```
-
-O banco `"TCC"` e a tabela `bulas` substituem completamente o antigo arquivo
-`controle/coleta.sqlite3`. O histórico do SQLite não é importado; esta versão
-começa um novo controle por nome.
+O CSV de controle exporta somente os nove campos mantidos. As consultas de
+`consultar_metricas.sql` usam tempo total e distribuição por status. A coleta
+real depende do acesso atual ao Bulário e não faz parte dos testes simulados.
 
 ## Argumentos
 

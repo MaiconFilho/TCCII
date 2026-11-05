@@ -14,63 +14,9 @@ from .modelos import BulaLocalizada, MedicamentoParaColeta, montar_slug_nome
 class ControleColeta:
     def __init__(self, dsn: str) -> None:
         self.conexao = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        # Instala??o expl?cita: banco/modelo.sql. O coletor n?o recria schema.
         with self.conexao.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS bulas (
-                    nome_normalizado TEXT PRIMARY KEY,
-                    quantidade_registros_planilha INTEGER NOT NULL DEFAULT 1,
-                    nome_anvisa TEXT,
-                    principios_ativos TEXT,
-                    composicao TEXT,
-                    numero_registro TEXT,
-                    expediente TEXT,
-                    id_produto TEXT,
-                    id_bula_profissional TEXT,
-                    data_publicacao_anvisa TIMESTAMPTZ,
-                    status TEXT NOT NULL,
-                    tentativas INTEGER NOT NULL DEFAULT 0,
-                    caminho_pdf TEXT,
-                    sha256_pdf TEXT,
-                    tamanho_pdf BIGINT,
-                    tempo_consulta_segundos NUMERIC(12, 3),
-                    tempo_download_segundos NUMERIC(12, 3),
-                    tempo_total_segundos NUMERIC(12, 3),
-                    mensagem TEXT,
-                    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-                """
-            )
-            cursor.execute(
-                """
-                ALTER TABLE bulas
-                    ADD COLUMN IF NOT EXISTS data_publicacao_anvisa TIMESTAMPTZ,
-                    ADD COLUMN IF NOT EXISTS principios_ativos TEXT,
-                    ADD COLUMN IF NOT EXISTS composicao TEXT
-                """
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_bulas_status ON bulas (status)"
-            )
-            for comentario in (
-                "COMMENT ON TABLE bulas IS "
-                "'Controle da coleta da bula profissional mais recente por nome de medicamento.'",
-                "COMMENT ON COLUMN bulas.nome_normalizado IS "
-                "'Chave normalizada usada para impedir mais de uma bula por nome.'",
-                "COMMENT ON COLUMN bulas.principios_ativos IS "
-                "'Nomes literais dos principios ativos confirmados na composicao da bula, separados por ponto e virgula.'",
-                "COMMENT ON COLUMN bulas.composicao IS "
-                "'Texto integral da secao de composicao extraido do PDF pela etapa de extracao.'",
-                "COMMENT ON COLUMN bulas.data_publicacao_anvisa IS "
-                "'Data de publicação da bula no Bulário Eletrônico, obtida do campo data da API.'",
-                "COMMENT ON COLUMN bulas.tempo_consulta_segundos IS "
-                "'Tempo em segundos da consulta paginada e seleção da bula mais recente, medido com relógio monotônico.'",
-                "COMMENT ON COLUMN bulas.tempo_download_segundos IS "
-                "'Tempo em segundos da transferência e recebimento do PDF.'",
-                "COMMENT ON COLUMN bulas.tempo_total_segundos IS "
-                "'Tempo em segundos desde o início da consulta até a validação e preparação do PDF ou registro do erro.'",
-            ):
-                cursor.execute(comentario)
+            cursor.execute("SELECT nome_normalizado,nome_anvisa,numero_registro,expediente,status,tentativas,tempo_total_segundos,principios_ativos,composicao FROM bulas LIMIT 0")
 
     def fechar(self) -> None:
         self.conexao.close()
@@ -79,7 +25,7 @@ class ControleColeta:
         with self.conexao.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT status, caminho_pdf
+                SELECT status
                 FROM bulas
                 WHERE nome_normalizado = %s
                 """,
@@ -88,7 +34,7 @@ class ControleColeta:
             linha = cursor.fetchone()
         if not linha or linha["status"] != "CONCLUIDO":
             return False
-        return bool(linha["caminho_pdf"] and resolver_caminho(linha["caminho_pdf"]).exists())
+        return True  # Base fixa: conclu?do n?o ? baixado novamente, mesmo sem PDF local.
 
     def recuperar_pdf_existente(
         self,
@@ -99,8 +45,7 @@ class ControleColeta:
             cursor.execute(
                 """
                 SELECT
-                    numero_registro,
-                    data_publicacao_anvisa
+                    numero_registro
                 FROM bulas
                 WHERE nome_normalizado = %s
                 """,
@@ -110,7 +55,6 @@ class ControleColeta:
 
         if (
             not linha
-            or linha["data_publicacao_anvisa"] is None
         ):
             return False
 
@@ -140,19 +84,10 @@ class ControleColeta:
                 """
                 UPDATE bulas
                 SET
-                    status = 'CONCLUIDO',
-                    caminho_pdf = %s,
-                    sha256_pdf = %s,
-                    tamanho_pdf = %s,
-                    mensagem = %s,
-                    atualizado_em = NOW()
+                    status = 'CONCLUIDO'
                 WHERE nome_normalizado = %s
                 """,
                 (
-                    str(caminho),
-                    hashlib.sha256(conteudo).hexdigest(),
-                    len(conteudo),
-                    "PDF existente recuperado; download não repetido.",
                     medicamento.nome_normalizado,
                 ),
             )
@@ -160,32 +95,12 @@ class ControleColeta:
 
     def iniciar(self, medicamento: MedicamentoParaColeta) -> None:
         with self.conexao.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO bulas (
-                    nome_normalizado,
-                    quantidade_registros_planilha,
-                    status,
-                    tentativas,
-                    atualizado_em
-                )
-                VALUES (%s, %s, 'PROCESSANDO', 1, NOW())
-                ON CONFLICT (nome_normalizado) DO UPDATE SET
-                    quantidade_registros_planilha =
-                        EXCLUDED.quantidade_registros_planilha,
-                    status = 'PROCESSANDO',
-                    tentativas = bulas.tentativas + 1,
-                    tempo_consulta_segundos = NULL,
-                    tempo_download_segundos = NULL,
-                    tempo_total_segundos = NULL,
-                    mensagem = NULL,
-                    atualizado_em = NOW()
-                """,
-                (
-                    medicamento.nome_normalizado,
-                    medicamento.quantidade_registros_planilha,
-                ),
-            )
+            cursor.execute("""INSERT INTO bulas(nome_normalizado,status,tentativas)
+                VALUES (%s,'PROCESSANDO',1)
+                ON CONFLICT(nome_normalizado) DO UPDATE SET
+                    status='PROCESSANDO',tentativas=COALESCE(bulas.tentativas,0)+1,
+                    tempo_total_segundos=NULL WHERE bulas.status IS DISTINCT FROM 'CONCLUIDO'
+            """,(medicamento.nome_normalizado,))
 
     def finalizar(
         self,
@@ -207,35 +122,15 @@ class ControleColeta:
                     nome_anvisa = COALESCE(%s, nome_anvisa),
                     numero_registro = COALESCE(%s, numero_registro),
                     expediente = COALESCE(%s, expediente),
-                    id_produto = COALESCE(%s, id_produto),
-                    id_bula_profissional = COALESCE(%s, id_bula_profissional),
-                    data_publicacao_anvisa =
-                        COALESCE(%s, data_publicacao_anvisa),
                     status = %s,
-                    mensagem = %s,
-                    caminho_pdf = COALESCE(%s, caminho_pdf),
-                    sha256_pdf = COALESCE(%s, sha256_pdf),
-                    tamanho_pdf = COALESCE(%s, tamanho_pdf),
-                    tempo_consulta_segundos = %s,
-                    tempo_download_segundos = %s,
-                    tempo_total_segundos = %s,
-                    atualizado_em = NOW()
+                    tempo_total_segundos = %s
                 WHERE nome_normalizado = %s
                 """,
                 (
                     bula.nome_produto if bula else None,
                     bula.numero_registro if bula else None,
                     bula.expediente if bula else None,
-                    bula.id_produto if bula else None,
-                    bula.id_bula_profissional if bula else None,
-                    bula.data_publicacao if bula else None,
                     status,
-                    mensagem[:2000],
-                    caminho_pdf or None,
-                    sha256_pdf or None,
-                    tamanho_pdf,
-                    tempo_consulta_segundos,
-                    tempo_download_segundos,
                     tempo_total_segundos,
                     medicamento.nome_normalizado,
                 ),
