@@ -5,9 +5,8 @@
 - Relações são lidas de ``interacoes``; a tabela de ligação entra por
   ``LEFT JOIN``/``EXISTS`` e nunca elimina alimentos, classes ou alvos sem
   medicamento associado.
-- A vigência vem da view ``processamentos_interacoes_vigentes`` das migrações
-  de ``pipelines/identificacao_interacoes/migracoes`` (a 002 deixa de fora resultados em
-  revisão e versões retiradas). A API não cria nem altera esquema.
+- A vigência vem da baseline ``banco/modelo.sql``: conclusão não invalidada
+  da base fixa, por maior ID. A API não cria nem altera esquema.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from collections.abc import Iterable, Sequence
 from psycopg import errors
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
+from banco.operacao import MODELO
 
 from pipelines.identificacao_interacoes.modelos import chave_bloqueio, partes_chave_bloqueio
 from pipelines.resumos_interacoes.rastreabilidade import entrada_card, entrada_geral, simples_atual
@@ -41,65 +41,22 @@ OBJETOS_NECESSARIOS = (
 )
 
 NOME_EXIBICAO = "COALESCE(NULLIF(BTRIM({t}.nome_anvisa), ''), {t}.nome_normalizado)"
-HASH_ATUAL = "ENCODE(SHA256(CONVERT_TO(bi.trecho_interacoes, 'UTF8')), 'hex')"
-
 SQL_SITUACAO = f"""
-SELECT
-    b.nome_normalizado,
-    {NOME_EXIBICAO.format(t="b")} AS nome_exibicao,
-    b.status AS status_bula,
-    b.principios_ativos,
-    b.numero_registro,
-    b.expediente,
-    b.sha256_pdf,
-    b.data_publicacao_anvisa,
-    bi.nome_normalizado IS NOT NULL AS tem_extracao,
-    bi.status_extracao,
-    NULLIF(BTRIM(bi.trecho_interacoes), '') IS NOT NULL AS tem_texto,
-    (bi.numero_registro IS NOT DISTINCT FROM b.numero_registro
-     AND bi.expediente IS NOT DISTINCT FROM b.expediente) AS extracao_coerente,
-    v.id AS processamento_id,
-    v.status AS status_processamento,
-    v.concluido_em,
-    v.versao_processamento,
-    v.modelo,
-    v.numero_registro AS registro_processado,
-    v.expediente AS expediente_processado,
-    v.sha256_pdf AS sha256_processado,
-    v.data_publicacao_anvisa AS publicacao_processada,
-    ultima.status AS ultimo_status_fonte_atual,
-    EXISTS (
-        SELECT 1 FROM processamentos_interacoes AS h
-        WHERE h.medicamento_origem = b.nome_normalizado
-    ) AS tem_historico,
-    EXISTS (
-        SELECT 1 FROM processamentos_interacoes AS r
-        WHERE r.medicamento_origem = b.nome_normalizado
-          AND r.invalidado_em IS NOT NULL
-          AND bi.trecho_interacoes IS NOT NULL
-          AND r.hash_trecho = {HASH_ATUAL}
-          AND r.numero_registro IS NOT DISTINCT FROM b.numero_registro
-          AND r.expediente IS NOT DISTINCT FROM b.expediente
-          AND r.sha256_pdf IS NOT DISTINCT FROM b.sha256_pdf
-    ) AS tem_retirada_fonte_atual
-FROM bulas AS b
-LEFT JOIN bulas_interacoes AS bi ON bi.nome_normalizado = b.nome_normalizado
-LEFT JOIN processamentos_interacoes_vigentes AS v ON v.medicamento_origem = b.nome_normalizado
-    AND v.status IN ('CONCLUIDO_COM_RELACOES', 'CONCLUIDO_SEM_RELACOES')
-LEFT JOIN LATERAL (
-    SELECT p.status
-    FROM processamentos_interacoes AS p
-    WHERE p.medicamento_origem = b.nome_normalizado
-      AND p.invalidado_em IS NULL
-      AND bi.trecho_interacoes IS NOT NULL
-      AND p.hash_trecho = {HASH_ATUAL}
-      AND p.numero_registro IS NOT DISTINCT FROM b.numero_registro
-      AND p.expediente IS NOT DISTINCT FROM b.expediente
-      AND p.sha256_pdf IS NOT DISTINCT FROM b.sha256_pdf
-    ORDER BY p.id DESC
-    LIMIT 1
-) AS ultima ON TRUE
-WHERE b.nome_normalizado = ANY(%s)
+SELECT b.nome_normalizado, {NOME_EXIBICAO.format(t="b")} AS nome_exibicao,
+    b.status AS status_bula, b.principios_ativos, b.numero_registro, b.expediente,
+    bi.nome_normalizado IS NOT NULL AS tem_extracao, bi.status_extracao,
+    NULLIF(BTRIM(bi.trecho_interacoes),'') IS NOT NULL AS tem_texto,
+    v.id AS processamento_id, v.status AS status_processamento, v.concluido_em,
+    v.versao_processamento, v.modelo, ultima.status AS ultimo_status,
+    EXISTS (SELECT 1 FROM interacoes i WHERE i.processamento_id=v.id) AS tem_mencoes,
+    EXISTS (SELECT 1 FROM processamentos_interacoes r
+            WHERE r.medicamento_origem=b.nome_normalizado AND r.invalidado_em IS NOT NULL) AS tem_retirada
+FROM bulas b LEFT JOIN bulas_interacoes bi USING(nome_normalizado)
+LEFT JOIN processamentos_interacoes_vigentes v ON v.medicamento_origem=b.nome_normalizado
+LEFT JOIN LATERAL (SELECT p.status FROM processamentos_interacoes p
+    WHERE p.medicamento_origem=b.nome_normalizado AND p.invalidado_em IS NULL
+    ORDER BY p.id DESC LIMIT 1) ultima ON TRUE
+WHERE b.nome_normalizado=ANY(%s)
 """
 
 COLUNAS_RELACAO = f"""
@@ -120,15 +77,12 @@ COLUNAS_RELACAO = f"""
     i.evidencia,
     {NOME_EXIBICAO.format(t="bo")} AS origem_exibicao,
     v.id AS processamento_id,
-    v.hash_trecho,
     v.status AS status_processamento,
     v.concluido_em,
     v.versao_processamento,
     v.modelo,
-    v.numero_registro,
-    v.expediente,
-    v.sha256_pdf,
-    v.data_publicacao_anvisa
+    bo.numero_registro,
+    bo.expediente
 """
 
 # Vigência restrita aos candidatos: a condição sobre medicamento_origem é
@@ -171,7 +125,6 @@ WITH vigentes AS (
 SELECT
     {COLUNAS_RELACAO},
     im.criterio_vinculo,
-    im.fundamento_vinculo,
     CASE WHEN i.medicamento_origem = %(a)s THEN 'BULA_A_CITA_B' ELSE 'BULA_B_CITA_A' END AS sentido_par
 FROM interacoes AS i
 JOIN vigentes AS v ON v.id = i.processamento_id
@@ -213,7 +166,9 @@ SELECT
        AND NULLIF(BTRIM(bi.trecho_interacoes), '') IS NOT NULL) AS elegiveis,
     (SELECT COUNT(*)
      FROM processamentos_interacoes_vigentes AS v
-     WHERE v.status IN ('CONCLUIDO_COM_RELACOES', 'CONCLUIDO_SEM_RELACOES')) AS concluidas,
+     WHERE v.status='CONCLUIDO_SEM_RELACOES'
+        OR (v.status='CONCLUIDO_COM_RELACOES' AND EXISTS
+            (SELECT 1 FROM interacoes i WHERE i.processamento_id=v.id))) AS concluidas,
     -- Em revisão: o último resultado da fonte atual pede revisão e não há
     -- versão concluída vigente (resultados em revisão não são vigentes).
     (SELECT COUNT(*)
@@ -262,7 +217,7 @@ class RepositorioConsulta:
                     if linha.get("resumos_mesmo_alvo"):
                         linha["resumos_mesmo_alvo"] = [i for i in linha["resumos_mesmo_alvo"] if not relacao_nao_positiva(i)]
                     if "resumo_card_simples" in linha and not simples_atual(
-                            linha["resumo_card_simples"], linha.get("reescrita_controle"), entrada_card(linha)):
+                            linha["resumo_card_simples"], linha.get("reescrita_controle"), entrada_card(linha), legado_validado=True):
                         linha["resumo_card_simples"] = None
                 return linhas
         except (errors.UndefinedTable, errors.UndefinedColumn) as erro:
@@ -285,7 +240,17 @@ class RepositorioConsulta:
                 (list(OBJETOS_NECESSARIOS),),
             )
             if not linhas:
-                self._consultar("SELECT resumo_card, resumo_card_simples, reescrita_controle FROM interacoes LIMIT 0")
+                campos = self._consultar("""SELECT table_name,column_name,udt_name,is_nullable
+                    FROM information_schema.columns WHERE table_schema='public' AND table_name=ANY(%s)""", (list(MODELO),))
+                tipos={'TEXT':'text','BIGINT':'int8','INTEGER':'int4','FLOAT8':'float8','NUMERIC':'numeric','TIMESTAMPTZ':'timestamptz','JSONB':'jsonb'}
+                esperado={(t,f):tipos[tipo] for t,fields in MODELO.items() for f,tipo in fields.items()}
+                if {(r['table_name'],r['column_name']):r['udt_name'] for r in campos} != esperado:
+                    return True, False
+                versao=self._consultar("SELECT obj_description('public.processamentos_interacoes_vigentes'::regclass,'pg_class') AS versao")[0]['versao']
+                if not (versao or '').lower().startswith('modelo60/v1:'):
+                    return True, False
+                self._consultar(SQL_SITUACAO, ([],))
+                self._consultar(SQL_RELACOES_MEDICAMENTO, {"nome":"", "limite":0, "deslocamento":0})
                 self._consultar("SELECT resumo_geral, resumo_gerado_em, resumo_geral_simples, reescrita_controle FROM processamentos_interacoes LIMIT 0")
         except (BancoIndisponivelError, EsquemaAusenteError):
             return False, False
@@ -403,7 +368,7 @@ class RepositorioConsulta:
             SELECT p.resumo_geral AS texto, p.resumo_gerado_em AS gerado_em,
                    p.id AS processamento_id, 'CONCLUIDO' AS status,
                    p.resumo_geral, p.resumo_geral_simples AS texto_simples, p.reescrita_controle,
-                   p.medicamento_origem, p.hash_trecho, p.sha256_pdf, b.principios_ativos
+                   p.medicamento_origem, b.principios_ativos
             FROM processamentos_interacoes p
             JOIN processamentos_interacoes_vigentes v ON v.id = p.id
             JOIN bulas b ON b.nome_normalizado=p.medicamento_origem
@@ -416,7 +381,7 @@ class RepositorioConsulta:
             interacoes = self._consultar("SELECT id, alvo, evidencia FROM interacoes WHERE processamento_id=%s ORDER BY id",
                                          (processamento_id,))
             entrada = entrada_geral(linha, [i for i in interacoes if not relacao_nao_positiva(i)])
-            if not simples_atual(linha["texto_simples"], linha["reescrita_controle"], entrada):
+            if not simples_atual(linha["texto_simples"], linha["reescrita_controle"], entrada, legado_validado=True):
                 linha["texto_simples"] = None
         return {k: linha[k] for k in ("texto", "texto_simples", "gerado_em", "processamento_id", "status")}
 

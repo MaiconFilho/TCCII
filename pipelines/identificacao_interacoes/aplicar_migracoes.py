@@ -1,15 +1,8 @@
-"""Aplica as migrações SQL deste módulo, em ordem, cada uma em uma transação.
+"""Entrada compatível da instalação: baseline modelo60/v1.
 
-Uso, a partir da raiz do projeto::
-
-    python -m pipelines.identificacao_interacoes.aplicar_migracoes
-
-As migrações são aditivas e idempotentes (CREATE ... IF NOT EXISTS, CREATE OR
-REPLACE VIEW, COMMENT). Nenhum comando destrutivo é aceito: o arquivo é
-recusado antes da execução se contiver DROP, TRUNCATE, DELETE ou ALTER ... DROP.
-A única exceção é trocar uma regra CHECK por outra de mesmo nome na mesma
-instrução (``DROP CONSTRAINT IF EXISTS ck_x, ADD CONSTRAINT ck_x CHECK``), que
-não apaga dados. A API nunca executa este script.
+Os arquivos 001–007 permanecem como histórico. O executor nunca os reaplica sobre
+a baseline final. Base existente antiga exige banco.operacao diagnosticar/migrar.
+As funções de inspeção da aditividade servem à auditoria dos arquivos históricos.
 """
 
 from __future__ import annotations
@@ -58,14 +51,19 @@ def conferir_aditiva(caminho: Path) -> str:
 
 
 def aplicar(dsn: str, migracoes: list[Path]) -> list[str]:
-    aplicadas: list[str] = []
-    conteudos = [(caminho, conferir_aditiva(caminho)) for caminho in migracoes]
-    with psycopg.connect(dsn, autocommit=True) as conexao:
-        for caminho, sql in conteudos:
-            with conexao.transaction():
-                conexao.execute(sql)
-            aplicadas.append(caminho.name)
-    return aplicadas
+    # Arquivos hist?ricos ficam dispon?veis para auditoria/teste da atualiza??o.
+    # Nunca s?o reaplicados no fluxo final (recriariam colunas e a fila legada).
+    from banco.operacao import inicializar, validar, colunas
+    from psycopg.rows import dict_row
+    with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as conexao:
+        if not colunas(conexao):
+            inicializar(conexao)
+            return ["modelo60/v1 (baseline can?nica)"]
+        try:
+            validar(conexao)
+        except ValueError as exc:
+            raise ValueError("Base anterior: use python -m banco.operacao diagnosticar e migrar; as migra??es hist?ricas n?o ser?o reaplicadas.") from exc
+    return []
 
 
 def main(argumentos: list[str] | None = None) -> int:

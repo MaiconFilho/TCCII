@@ -225,9 +225,6 @@ class FonteInteracoes:
     trecho_interacoes: str
     numero_registro: str | None
     expediente: str | None
-    sha256_pdf: str | None = None
-    id_produto: str | None = None
-    data_publicacao_anvisa: datetime | None = None
     hash_trecho_banco: str | None = None
     identificadores_coerentes: bool = True
 

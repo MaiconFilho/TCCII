@@ -2,17 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from uuid import UUID
-from fastapi import APIRouter, Query, Request, Response
-from pipelines.inclusao_medicamentos.estado import resposta
+from fastapi import APIRouter, Query, Request
 
-from .contratos import (Erro, RespostaInteracoes, RespostaPar, RespostaSugestoes, Saude,
-                        PedidoPreparacao, SelecaoAnvisa, RespostaPreparacao)
+from .contratos import (Erro, RespostaInteracoes, RespostaPar, RespostaSugestoes, Saude)
 from .servico import ServicoConsulta
-from pipelines.inclusao_medicamentos.repositorio import ErroSolicitacao
 
 
-VERSAO_API = "1.0.0"
+VERSAO_API = "2.0.0"
 ERROS_COMUNS = {
     422: {"model": Erro, "description": "Parâmetro inválido."},
     503: {"model": Erro, "description": "Serviço de consulta indisponível ou ainda não preparado."},
@@ -103,41 +99,3 @@ def par(
     medicamento_b: Annotated[str, Query(min_length=1, max_length=200)],
 ) -> RespostaPar:
     return _servico(request).par(medicamento_a, medicamento_b)
-
-
-@roteador.post('/processamentos', status_code=202, response_model=RespostaPreparacao,
-               responses={**ERROS_COMUNS, 200: {'model': RespostaPreparacao, 'description': 'Medicamento já cadastrado.'}}, tags=['preparação'])
-def solicitar_processamento(pedido: PedidoPreparacao, request: Request, response: Response):
-    _verificar_inclusao(request)
-    dados = request.app.state.solicitacoes.solicitar(pedido.nome)
-    if dados['estado'] == 'CONCLUIDO':
-        response.status_code = 200
-    _garantir_trabalhador(request, dados)
-    return dados
-
-
-@roteador.get('/processamentos/{identificador}', response_model=RespostaPreparacao, responses=ERROS_COMUNS, tags=['preparação'])
-def andamento_processamento(identificador: UUID, request: Request):
-    _verificar_inclusao(request)
-    dados = resposta(request.app.state.solicitacoes.obter(identificador))
-    _garantir_trabalhador(request, dados)
-    return dados
-
-
-@roteador.post('/processamentos/{identificador}/selecao', status_code=202, response_model=RespostaPreparacao, responses=ERROS_COMUNS, tags=['preparação'])
-def selecionar_medicamento_anvisa(identificador: UUID, pedido: SelecaoAnvisa, request: Request):
-    _verificar_inclusao(request)
-    dados = request.app.state.solicitacoes.selecionar(identificador, pedido.nome_normalizado)
-    _garantir_trabalhador(request, dados)
-    return dados
-
-
-def _verificar_inclusao(request: Request):
-    if not request.app.state.configuracao.inclusao_habilitada:
-        raise ErroSolicitacao('A inclusão de novos medicamentos está desativada. Consulte um medicamento já disponível.')
-
-
-def _garantir_trabalhador(request: Request, dados: dict):
-    trabalhador = request.app.state.trabalhador
-    if trabalhador is not None and dados['estado'] in ('AGUARDANDO', 'EM_PROCESSAMENTO'):
-        trabalhador.garantir()

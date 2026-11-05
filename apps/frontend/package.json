@@ -7,7 +7,8 @@
     "build": "node scripts/run-next.cjs build",
     "start": "node scripts/run-next.cjs start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

@@ -14,10 +14,8 @@ export type EstadoAnalise =
   | "REVISAO_NECESSARIA"
   | "EM_PROCESSAMENTO"
   | "NAO_PROCESSADO"
-  | "DESATUALIZADO"
   | "RETIRADO"
   | "FALHA"
-  | "FONTE_INCOERENTE"
   | "SEM_TOPICO_INTERACOES"
   | "EXTRACAO_INDISPONIVEL"
   | "SEM_BULA"
@@ -53,8 +51,6 @@ export interface FonteBula {
   medicamento: Medicamento
   numero_registro: string | null
   expediente: string | null
-  sha256_pdf: string | null
-  data_publicacao_bula: string | null
 }
 
 export interface Processamento {
@@ -124,7 +120,6 @@ export interface ItemPar {
   resumo_card_simples?: string | null
   criterio_vinculo: CriterioVinculo | null
   /** Texto do cadastro que fundamentou o vínculo (ex.: o princípio ativo "paracetamol"). */
-  fundamento_vinculo?: string | null
 }
 
 export interface EvidenciaPar {

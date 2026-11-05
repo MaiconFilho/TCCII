@@ -22,14 +22,14 @@ import {
   type AnaliseBula, type CriterioVinculo, type EvidenciaPar, type FonteBula, type Medicamento,
   type MedicamentoRelacionado, type Processamento, type Relacao, type RespostaInteracoes, type RespostaPar,
 } from "@/lib/api"
-import { bulaUrl, chaveCitacao, citacoesUnicas, CRITERIO, ESTADO, evidenciasUnicas, TOM_BADGE, fold, formatarData, nomeLegivel } from "@/lib/interacoes-data"
+import { bulaUrl, chaveCitacao, citacoesUnicas, CRITERIO, ESTADO, evidenciasUnicas, TOM_BADGE, fold, nomeLegivel } from "@/lib/interacoes-data"
 import { citaParteDoComposto, ligacoesDoPar, paresDeMedicamentos, type Ligacao } from "@/lib/comparacao"
 
 const TAMANHO_PAGINA = 50
 // Máximo aceito pela API (API_AUTOCOMPLETE_LIMITE_MAXIMO).
 const LIMITE_SUGESTOES = 20
 // Preserva o fluxo experimental, desativado enquanto a coleta externa não estiver disponível.
-const INCLUSAO_HABILITADA = process.env.NEXT_PUBLIC_INCLUSAO_MEDICAMENTOS === 'true'
+const INCLUSAO_HABILITADA = false // Base fixa: sem fila nem coleta durante consultas.
 const MEDICAMENTO_AUSENTE = 'Medicamento não encontrado entre os disponíveis para consulta. Verifique o nome ou selecione uma sugestão.'
 /** Trecho em uma linha, sem o marcador de lista do PDF no início. */
 const compactar = (texto: string) =>
@@ -291,7 +291,6 @@ function JanelaEvidencia({ detalhe, onClose }: { detalhe: DetalheEvidencia | nul
               <div key={i}>
                 <p className="mb-1.5 text-xs font-medium text-muted-foreground">
                   Bula de {nomeLegivel((t.fonte ?? detalhe.fonte).medicamento.nome_exibicao)}
-                  {formatarData((t.fonte ?? detalhe.fonte).data_publicacao_bula) && ` · publicada em ${formatarData((t.fonte ?? detalhe.fonte).data_publicacao_bula)}`}
                 </p>
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>Citado no trecho: <strong className="font-semibold text-foreground">{t.alvo}</strong></span>
@@ -330,7 +329,7 @@ function JanelaEvidencia({ detalhe, onClose }: { detalhe: DetalheEvidencia | nul
                 <p className="font-medium">{bulas.length === 1 ? `Bula de ${nomeLegivel(detalhe.fonte.medicamento.nome_exibicao)}` : `${bulas.length} bulas consultadas`}</p>
                 <p className="text-muted-foreground">
                   {bulas.length === 1 ? [
-                    formatarData(detalhe.fonte.data_publicacao_bula) && `Publicada em ${formatarData(detalhe.fonte.data_publicacao_bula)}`,
+                    detalhe.fonte.numero_registro && `Registro ${detalhe.fonte.numero_registro}`,
                     detalhe.fonte.expediente && `Expediente ${detalhe.fonte.expediente}`,
                   ].filter(Boolean).join(" · ") : bulas.map((b) => nomeLegivel(b.medicamento.nome_exibicao)).join(" · ")}
                 </p>

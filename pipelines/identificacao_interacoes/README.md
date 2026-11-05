@@ -116,17 +116,11 @@ Os conjuntos de referência e relatórios da avaliação permanecem fora do repo
 
 ## Fonte dos dados
 
-Só entram registros com `bulas_interacoes.status_extracao = 'CONCLUIDO'` e
-texto preenchido. Para cada um são lidos de `bulas`: `nome_normalizado`
-(origem), `nome_anvisa` (exibição), `principios_ativos`, `numero_registro`,
-`expediente`, `sha256_pdf`, `id_produto` e `data_publicacao_anvisa`.
-
-Antes de processar, a CLI confere que registro e expediente de
-`bulas_interacoes` são os mesmos de `bulas` e que o SHA-256 do texto calculado
-no PostgreSQL é igual ao calculado no Python; divergência vira
-`FONTE_INCOERENTE` e nada é processado. O medicamento de origem sempre vem do
-registro selecionado, nunca do modelo. Os chunks vetoriais não são usados: o
-texto literal é o `trecho_interacoes` completo.
+A fonte é a extração concluída de `bulas_interacoes`, com texto não vazio,
+associada ao cadastro por `nome_normalizado`. Registro e expediente vêm de `bulas`.
+A base é fixa; não há cópias de metadados de fonte nos processamentos.
+Durante uma inferência, texto/identificação são revalidados em memória antes de
+salvar, com bloqueio compartilhado das linhas. Isso não persiste hashes da fonte.
 
 ## Modelo: reutilização e avaliação
 
@@ -296,7 +290,7 @@ caixa, acentos e espaços). Nunca por substring.
 - Composição, como complemento: só uma equivalência **declarada** e presa a um
   princípio ativo, por exemplo "cloridrato de paroxetina 22,214 mg (equivalente
   a 20 mg de paroxetina base)". Excipientes, veículos e "não contém"/"isento
-  de"/"livre de" são ignorados; a passagem fica em `fundamento_vinculo`.
+  de"/"livre de" são ignorados; a passagem pode apoiar a resolução em memória, sem persistir fundamento removido.
 - `MEDICAMENTO`: `nome_normalizado` ou `nome_anvisa` exatos.
 - Classes, alimentos e demais tipos são gravados sem vínculo e sem expansão.
 - Todos os medicamentos com correspondência válida são vinculados, exceto a
@@ -307,70 +301,24 @@ depois equivalência declarada, depois sem sal). Nomes que só aparecem em parte
 ("prazol") continuam sem vínculo; a API mostra menções sem vínculo e não
 conclui ausência de interação por causa delas.
 
-## Tabelas
+## Tabelas e vigência
 
-Criadas somente por [`migracoes/001_criar_interacoes.sql`](migracoes/001_criar_interacoes.sql)
-e ajustadas por [`migracoes/002_vigencia_aprovada.sql`](migracoes/002_vigencia_aprovada.sql)
-e [`migracoes/003_vinculo_sem_sal.sql`](migracoes/003_vinculo_sem_sal.sql)
-(aditivas, idempotentes, com comentários; a 003 só troca a regra CHECK de
-`criterio_vinculo` para aceitar `PRINCIPIO_ATIVO_SEM_SAL`). Nenhuma tabela
-anterior à etapa é alterada.
+O contrato padrão é [banco/modelo.sql](../../banco/modelo.sql): cinco tabelas,
+60 campos. A identificação grava `processamentos_interacoes`, `interacoes` e
+`interacoes_medicamentos`, preservando as demais etapas e os textos já prontos.
+Nenhuma tabela de fila/embeddings é criada pela instalação final.
 
-```text
-processamentos_interacoes   controle e histórico; uma linha por execução
-  id, medicamento_origem → bulas, status, versao_processamento, modelo,
-  hash_trecho, caracteres_trecho, numero_registro, expediente, sha256_pdf,
-  id_produto, data_publicacao_anvisa, janelas, relações, rejeições, vínculos,
-  tempos, pico de memória, detalhe, iniciado_em, concluido_em
+A conclusão utilizável tem extração concluída e texto, status concluído e
+`invalidado_em IS NULL`; entre elas, vence o maior ID. Falha ou revisão posterior
+preserva a conclusão anterior. Revisão só entra na view de registrados para
+retomada, sem publicação. Ausência de registros não é resultado negativo.
+Retirada explícita preserva histórico; o motivo informado fica nos registros da
+operação, sem recriar `motivo_invalidacao` no banco. Correções excepcionais da
+fonte exigem retirar resultados antes de alterar o texto/identificação.
 
-interacoes                  todas as relações, com ou sem medicamento associado
-  id, medicamento_origem → bulas, alvo, tipo_alvo, resumo, evidencia,
-  processamento_id → processamentos_interacoes   (vínculo técnico de versão)
-
-interacoes_medicamentos     zero, um ou vários medicamentos por interação
-  PK (interacao_id → interacoes, medicamento_relacionado → bulas),
-  criterio_vinculo, fundamento_vinculo, vinculado_em, invalidado_em
-
-processamentos_interacoes_vigentes (view, redefinida pela 002)
-  último processamento CONCLUIDO_* não retirado e compatível com o texto e a
-  bula atuais; REVISAO_NECESSARIA não entra (antes da 002 entrava)
-
-processamentos_interacoes_registrados (view, 002)
-  último resultado não retirado (concluído ou em revisão) da fonte atual; só
-  para a retomada em lote não repetir a mesma versão; a API não lê
-```
-
-A 002 também acrescenta `invalidado_em` e `motivo_invalidacao` em
-`processamentos_interacoes`, preenchidos apenas pela retirada explícita
-(`--retirar-processamento`). Vigente significa "concluído operacionalmente e
-compatível com a fonte", nunca aprovação clínica.
-
-Todas as chaves estrangeiras são `ON DELETE RESTRICT`. Não há
-`chave_deduplicacao` nem coluna com o nome fixo "Anvisa"; a identificação da
-bula vem de `medicamento_origem` e da cópia guardada no processamento.
-
-### Controle operacional e histórico
-
-| Situação | Como aparece |
-| --- | --- |
-| Não processado | nenhuma linha em `processamentos_interacoes` para a fonte atual |
-| Concluído com relações | `CONCLUIDO_COM_RELACOES` |
-| Concluído sem relações | `CONCLUIDO_SEM_RELACOES` |
-| Revisão necessária | `REVISAO_NECESSARIA` (relações aceitas gravadas para revisão; não vigente; a versão concluída anterior, se houver, continua vigente) |
-| Falha | `FALHA` (nenhuma relação gravada; o resultado anterior compatível continua vigente) |
-| Retirado | `invalidado_em` preenchido por decisão explícita, com motivo; sai da vigência e continua no histórico |
-
-- A versão do texto é o SHA-256 de `trecho_interacoes`; a da bula é registro,
-  expediente e `sha256_pdf`; a do processamento é o prompt (com hash das
-  instruções e esquemas), o modelo e os parâmetros.
-- Se o texto ou a bula mudarem, o resultado antigo sai da view vigente e
-  continua no banco, ligado à bula efetivamente usada; a API não o apresenta
-  como derivado da versão nova.
-- O reprocessamento cria uma nova versão; nada é apagado.
-- Uma execução posterior com falha ou em revisão não invalida automaticamente
-  a versão concluída anterior; só a retirada explícita a tira da vigência.
-- Conclusão de todas as janelas é conclusão operacional, não garantia de que o
-  modelo encontrou todas as relações.
+As FKs são NOT NULL. Triggers verificam que a origem da interação corresponde à
+do processamento. Os vínculos mantêm o critério, sem `fundamento_vinculo` nem
+`vinculado_em`. Nenhum resultado pronto é regenerado pela migração.
 
 ### Concorrência e retomada
 
@@ -407,17 +355,11 @@ computador, crie um ambiente e instale
 
 ### Migração
 
-```cmd
-python -m pipelines.identificacao_interacoes.aplicar_migracoes --listar
-python -m pipelines.identificacao_interacoes.aplicar_migracoes
-```
-
-O aplicador recusa arquivos com `DROP`, `TRUNCATE` ou `DELETE`; a única
-exceção aceita é trocar uma regra CHECK por outra de mesmo nome na mesma
-instrução (`DROP CONSTRAINT IF EXISTS ck_x, ADD CONSTRAINT ck_x CHECK …`),
-que não apaga dados — é o que a 003 faz. Também é possível executar os
-arquivos SQL, em ordem, no pgAdmin, conectado ao banco `TCC`. A CLI e a API
-apenas conferem se o esquema existe; nenhuma delas migra sozinha.
+A instalação nova usa `python -m banco.operacao inicializar`. A atualização usa
+`banco.operacao diagnosticar`, backup, restauração/ensaio e `migrar`, conforme
+[banco/README.md](../../banco/README.md). Não execute manualmente os SQLs históricos
+001–007 sobre a baseline final. O executor antigo reconhece o modelo final e não
+os reaplica; em base antiga, exige a operação explícita.
 
 ## Comandos
 

@@ -25,7 +25,7 @@ def situacao(nome, **extra):
         "processamento_id": None, "status_processamento": None, "concluido_em": None,
         "versao_processamento": None, "modelo": None, "registro_processado": None,
         "expediente_processado": None, "sha256_processado": None, "publicacao_processada": None,
-        "ultimo_status_fonte_atual": None, "tem_historico": False,
+        "ultimo_status": None, "tem_historico": False,
     }
     base.update(extra)
     return base
@@ -33,7 +33,7 @@ def situacao(nome, **extra):
 
 def processado(nome, status, pid):
     return situacao(
-        nome, processamento_id=pid, status_processamento=status, concluido_em=DATA,
+        nome, processamento_id=pid, status_processamento=status, concluido_em=DATA,tem_mencoes=status=='CONCLUIDO_COM_RELACOES',
         versao_processamento="v1", modelo="m", registro_processado="1", expediente_processado="2",
         sha256_processado="h", publicacao_processada=PUBLICACAO,
     )
@@ -60,11 +60,11 @@ class RepositorioFalso:
             "losec": processado("losec", "CONCLUIDO_SEM_RELACOES", 2),
             "pendente": situacao("pendente"),
             "antigo": situacao("antigo", tem_historico=True),
-            "quebrado": situacao("quebrado", ultimo_status_fonte_atual="FALHA", tem_historico=True),
+            "quebrado": situacao("quebrado", ultimo_status="FALHA", tem_historico=True),
             "sem secao": situacao("sem secao", status_extracao="SEM_SECAO_INTERACOES", tem_texto=False),
             "incoerente": situacao("incoerente", extracao_coerente=False),
-            "revisado": situacao("revisado", ultimo_status_fonte_atual="REVISAO_NECESSARIA", tem_historico=True),
-            "retirado": situacao("retirado", tem_historico=True, tem_retirada_fonte_atual=True),
+            "revisado": situacao("revisado", ultimo_status="REVISAO_NECESSARIA", tem_historico=True),
+            "retirado": situacao("retirado", tem_historico=True, tem_retirada=True),
         }
         self.relacoes = [
             linha_relacao(10, "varfarina", "ácido acetilsalicílico", "PRINCIPIO_ATIVO"),
@@ -157,8 +157,8 @@ class TestApi(unittest.TestCase):
         self.assertNotIn("em_outras_bulas", str(corpo))
         self.assertEqual(corpo["resumo_geral"]["status"], "PENDENTE")
         self.assertEqual(primeira["gravidade"], "desconhecida")
-        self.assertIsNone(primeira["fonte"]["url_pdf"])
-        self.assertEqual(primeira["fonte"]["data_publicacao_bula"][:10], "2026-06-30")
+        self.assertNotIn("url_pdf", primeira["fonte"])
+        self.assertNotIn("data_publicacao_bula", primeira["fonte"])
         self.assertEqual(primeira["processamento"]["data_processamento"][:10], "2026-10-02")
         self.assertEqual(primeira["total_medicamentos_relacionados"], 3)
         self.assertFalse(corpo["cobertura"]["lista_exaustiva"])
@@ -228,8 +228,8 @@ class TestApi(unittest.TestCase):
     def test_estados_explicitos(self) -> None:
         self.repositorio.ocupados.add("pendente")
         esperados = {
-            "antigo": "DESATUALIZADO", "quebrado": "FALHA", "sem secao": "SEM_TOPICO_INTERACOES",
-            "incoerente": "FONTE_INCOERENTE", "pendente": "EM_PROCESSAMENTO",
+            "antigo": "NAO_PROCESSADO", "quebrado": "FALHA", "sem secao": "SEM_TOPICO_INTERACOES",
+            "incoerente": "NAO_PROCESSADO", "pendente": "EM_PROCESSAMENTO",
             "revisado": "REVISAO_NECESSARIA", "retirado": "RETIRADO",
         }
         for nome, estado in esperados.items():
@@ -272,7 +272,8 @@ class TestApi(unittest.TestCase):
         corpo = self.cliente.get("/api/interacoes/par", params={"medicamento_a": "varfarina", "medicamento_b": "losec"}).json()
         self.assertEqual(corpo["medicamento_b"]["principios_ativos"], ["paracetamol", "cloridrato de pseudoefedrina"])
         item = corpo["evidencias"][0]["itens"][0]
-        self.assertEqual((item["criterio_vinculo"], item["fundamento_vinculo"]), ("PRINCIPIO_ATIVO_EXATO", "paracetamol"))
+        self.assertEqual(item["criterio_vinculo"], "PRINCIPIO_ATIVO_EXATO")
+        self.assertNotIn("fundamento_vinculo", item)
 
     def test_par_nao_repete_citacao_com_formatacao_diferente(self) -> None:
         primeiro = linha_relacao(40, "varfarina", "losec", "MEDICAMENTO",

@@ -2,9 +2,9 @@
 
 -- 1. Situação dos processamentos: histórico completo e o vigente de cada bula.
 SELECT p.id, p.medicamento_origem, p.status, p.quantidade_janelas, p.janelas_concluidas,
-       p.quantidade_relacoes, p.quantidade_rejeicoes, p.quantidade_vinculos,
+       p.quantidade_relacoes, p.quantidade_rejeicoes,
        p.tempo_total_segundos, p.pico_memoria_mb, p.concluido_em,
-       (v.id IS NOT NULL) AS vigente, p.detalhe
+       (v.id IS NOT NULL) AS vigente
 FROM processamentos_interacoes AS p
 LEFT JOIN processamentos_interacoes_vigentes AS v ON v.id = p.id
 ORDER BY p.medicamento_origem, p.id DESC;
@@ -39,17 +39,16 @@ JOIN interacoes AS i ON i.processamento_id = v.id
 JOIN bulas_interacoes AS bi ON bi.nome_normalizado = v.medicamento_origem
 ORDER BY i.id;
 
--- 5. Cobertura do corpus.
-SELECT
-    (SELECT COUNT(*) FROM bulas_interacoes
-     WHERE status_extracao = 'CONCLUIDO' AND NULLIF(BTRIM(trecho_interacoes), '') IS NOT NULL) AS elegiveis,
-    COUNT(*) FILTER (WHERE status <> 'REVISAO_NECESSARIA') AS concluidas,
-    COUNT(*) FILTER (WHERE status = 'REVISAO_NECESSARIA') AS em_revisao
-FROM processamentos_interacoes_vigentes;
+-- 5. Cobertura do corpus: revisão só conta na ausência de conclusão utilizável.
+SELECT (SELECT count(*) FROM bulas_interacoes WHERE status_extracao='CONCLUIDO'
+    AND NULLIF(BTRIM(trecho_interacoes),'') IS NOT NULL) AS elegiveis,
+    (SELECT count(*) FROM processamentos_interacoes_vigentes) AS concluidas,
+    (SELECT count(*) FROM processamentos_interacoes_registrados r WHERE r.status='REVISAO_NECESSARIA'
+        AND NOT EXISTS (SELECT 1 FROM processamentos_interacoes_vigentes v WHERE v.medicamento_origem=r.medicamento_origem)) AS em_revisao;
 
 -- 6. Vínculos invalidados pela atualização do cadastro (histórico preservado).
 SELECT im.interacao_id, im.medicamento_relacionado, im.criterio_vinculo,
-       im.vinculado_em, im.invalidado_em
+       im.invalidado_em
 FROM interacoes_medicamentos AS im
 WHERE im.invalidado_em IS NOT NULL
 ORDER BY im.invalidado_em DESC;

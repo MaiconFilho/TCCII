@@ -122,7 +122,7 @@ class TestApiPostgresReal(unittest.TestCase):
             VERSAO_REESCRITA, entrada_card, entrada_geral, hash_dados,
         )
 
-        linha = self.conexao.execute("""SELECT i.*,p.hash_trecho,p.sha256_pdf,b.principios_ativos
+        linha = self.conexao.execute("""SELECT i.*,b.principios_ativos
             FROM interacoes i JOIN processamentos_interacoes p ON p.id=i.processamento_id
             JOIN bulas b ON b.nome_normalizado=i.medicamento_origem
             WHERE i.medicamento_origem='marevan' AND i.alvo='ácido acetilsalicílico'""").fetchone()
@@ -261,11 +261,12 @@ class TestApiPostgresReal(unittest.TestCase):
         self.identificacao.liberar_medicamento("pendente")
 
     def test_fonte_alterada_vira_desatualizado_e_preserva_outras_bulas(self) -> None:
+        self.conexao.execute("UPDATE processamentos_interacoes SET invalidado_em=now() WHERE medicamento_origem='marevan'")
         self.conexao.execute(
             "UPDATE bulas_interacoes SET trecho_interacoes = trecho_interacoes || ' Nova.' WHERE nome_normalizado = 'marevan'"
         )
         corpo = self.get("/api/interacoes", medicamento="marevan")
-        self.assertEqual(corpo["analise_bula"]["estado"], "DESATUALIZADO")
+        self.assertEqual(corpo["analise_bula"]["estado"], "RETIRADO")
         self.assertEqual(corpo["relacoes"], [])
         self.assertEqual(corpo["total_interacoes"], 0)
         # A consulta individual contém somente a própria bula; a outra fonte

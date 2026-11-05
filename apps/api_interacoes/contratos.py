@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,10 +19,8 @@ class EstadoAnalise(StrEnum):
     REVISAO_NECESSARIA = "REVISAO_NECESSARIA"
     EM_PROCESSAMENTO = "EM_PROCESSAMENTO"
     NAO_PROCESSADO = "NAO_PROCESSADO"
-    DESATUALIZADO = "DESATUALIZADO"
     RETIRADO = "RETIRADO"
     FALHA = "FALHA"
-    FONTE_INCOERENTE = "FONTE_INCOERENTE"
     SEM_TOPICO_INTERACOES = "SEM_TOPICO_INTERACOES"
     EXTRACAO_INDISPONIVEL = "EXTRACAO_INDISPONIVEL"
     SEM_BULA = "SEM_BULA"
@@ -43,37 +40,6 @@ class Erro(BaseModel):
     erro: str = Field(description="Código estável do erro.")
     mensagem: str = Field(description="Mensagem para o usuário, sem detalhes internos.")
     detalhes: list[dict[str, str]] = Field(default_factory=list)
-
-
-class PedidoPreparacao(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    nome: str = Field(min_length=1, max_length=200)
-
-
-class SelecaoAnvisa(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    nome_normalizado: str = Field(min_length=1, max_length=200)
-
-
-class OpcaoAnvisa(BaseModel):
-    nome_normalizado: str
-    nome_produto: str
-    numero_registro: str
-    data_publicacao: datetime | None = None
-
-
-class RespostaPreparacao(BaseModel):
-    id: UUID | None
-    nome_solicitado: str
-    nome_confirmado: str | None = None
-    estado: Literal['AGUARDANDO', 'EM_PROCESSAMENTO', 'AGUARDANDO_SELECAO', 'CONCLUIDO',
-                    'NAO_ENCONTRADO', 'FALHA', 'REVISAO_NECESSARIA']
-    etapa: str
-    mensagem: str
-    opcoes: list[OpcaoAnvisa] = Field(default_factory=list)
-    criado_em: datetime | None = None
-    atualizado_em: datetime | None = None
-    concluido_em: datetime | None = None
 
 
 class Saude(BaseModel):
@@ -115,17 +81,7 @@ class FonteBula(BaseModel):
     medicamento: Medicamento
     numero_registro: str | None
     expediente: str | None
-    sha256_pdf: str | None
-    data_publicacao_bula: datetime | None = Field(
-        description="Publicação da bula no Bulário; não é a data do processamento."
-    )
-    url_pdf: str | None = Field(
-        default=None,
-        description=(
-            "Sempre nulo nesta versão: o identificador gravado do PDF é um token temporário, "
-            "e um link genérico do Bulário não é o PDF específico."
-        ),
-    )
+
 
 
 class Processamento(BaseModel):
@@ -213,14 +169,7 @@ class ItemPar(BaseModel):
     resumo_card: str | None = None
     resumo_card_simples: str | None = None
     criterio_vinculo: CriterioVinculo | None = None
-    fundamento_vinculo: str | None = Field(
-        default=None,
-        description=(
-            "Texto do cadastro do outro medicamento que fundamentou o vínculo: o princípio ativo "
-            "(\"paracetamol\" em \"Paracetamol + Cloridrato de Pseudoefedrina\"), o nome ou a "
-            "passagem da composição. Nulo quando não há vínculo."
-        ),
-    )
+
 
 
 class EvidenciaPar(BaseModel):
