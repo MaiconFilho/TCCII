@@ -18,6 +18,7 @@ import pymupdf
 from dotenv import dotenv_values, load_dotenv
 
 from pipelines.extracao_interacoes.leitor_pdf import ler_pdf
+from pipelines.caminhos import localizar_pdf
 from pipelines.extracao_interacoes.ocr import motivo_ocr
 from pipelines.extracao_interacoes.validacao import localizar_fallback_estrutural, localizar_titulos_interacoes
 
@@ -99,11 +100,11 @@ def main():
     ) as conexao:
         with conexao.cursor() as cursor:
             cursor.execute(
-                "SELECT bi.nome_normalizado, b.caminho_pdf "
+                "SELECT bi.nome_normalizado, b.numero_registro "
                 "FROM public.bulas_interacoes bi JOIN public.bulas b USING(nome_normalizado) "
                 "WHERE bi.status_extracao = 'SEM_SECAO_INTERACOES' ORDER BY bi.nome_normalizado"
             )
-            itens = {n: {"nome_normalizado": n, "arquivo_pdf": p,
+            itens = {n: {"nome_normalizado": n, "arquivo_pdf": str(localizar_pdf(n,p)),
                          "status_anterior": "SEM_SECAO_INTERACOES"}
                      for n, p in cursor.fetchall()}
     with args.relatorio_lote.open(encoding="utf-8-sig", newline="") as arquivo:

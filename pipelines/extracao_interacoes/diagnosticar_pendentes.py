@@ -11,13 +11,14 @@ import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
 from pipelines.extracao_interacoes.leitor_pdf import ler_pdf
+from pipelines.caminhos import localizar_pdf
 from pipelines.extracao_interacoes.validacao import localizar_titulos_interacoes, localizar_fallback_estrutural, copiar_e_validar_trecho, limite_no_documento, sem_acentos
 from pipelines.extracao_interacoes.modo_rapido import preparar_confirmacoes
 
 def diagnosticar(item):
     saida=dict(item)
     try:
-        doc=ler_pdf(Path(item['caminho_pdf']))
+        doc=ler_pdf(localizar_pdf(item['nome_normalizado'],item['numero_registro']))
         saida['paginas']=doc.quantidade_paginas
         saida['paginas_ocr']=doc.paginas_ocr
         titulos=localizar_titulos_interacoes(doc)
@@ -51,9 +52,9 @@ def main():
     if args.saida.exists(): raise SystemExit('Destino existente; escolha outro nome.')
     load_dotenv(BASE/'.env')
     with psycopg.connect(os.environ['DATABASE_URL'],row_factory=dict_row,options='-c default_transaction_read_only=on') as c:
-        itens=c.execute('''SELECT b.nome_normalizado,b.caminho_pdf,bi.status_extracao,bi.detalhe_revisao
+        itens=c.execute('''SELECT b.nome_normalizado,b.numero_registro,bi.status_extracao,bi.detalhe_revisao
             FROM public.bulas b LEFT JOIN public.bulas_interacoes bi USING(nome_normalizado)
-            WHERE b.status='CONCLUIDO' AND b.caminho_pdf IS NOT NULL
+            WHERE b.status='CONCLUIDO' AND b.numero_registro IS NOT NULL
               AND (bi.nome_normalizado IS NULL OR bi.status_extracao <> 'CONCLUIDO')
             ORDER BY b.nome_normalizado''').fetchall()
     resultados=[]

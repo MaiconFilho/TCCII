@@ -3,7 +3,7 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
-from pipelines.caminhos import resolver_caminho
+from pipelines.caminhos import localizar_pdf
 
 from .erros import (
     ErroBancoError,
@@ -16,8 +16,6 @@ from .modelos import BulaParaExtracao, StatusExtracao
 SQL_CRIAR_TABELA = """
 CREATE TABLE IF NOT EXISTS bulas_interacoes (
     nome_normalizado TEXT PRIMARY KEY,
-    numero_registro TEXT NOT NULL,
-    expediente TEXT,
     trecho_interacoes TEXT,
     status_extracao TEXT NOT NULL DEFAULT 'CONCLUIDO',
     detalhe_revisao TEXT,
@@ -115,7 +113,6 @@ class RepositorioInteracoes:
                     b.nome_normalizado,
                     b.numero_registro,
                     b.expediente,
-                    b.caminho_pdf,
                     bi.nome_normalizado IS NULL AS precisa_interacoes,
                     (NULLIF(BTRIM(b.principios_ativos), '') IS NULL
                      OR NULLIF(BTRIM(b.composicao), '') IS NULL) AS precisa_cadastro
@@ -123,8 +120,6 @@ class RepositorioInteracoes:
                 LEFT JOIN bulas_interacoes AS bi
                     ON bi.nome_normalizado = b.nome_normalizado
                 WHERE b.status = 'CONCLUIDO'
-                  AND b.caminho_pdf IS NOT NULL
-                  AND BTRIM(b.caminho_pdf) <> ''
                   AND b.numero_registro IS NOT NULL
                   AND (CAST(%s AS TEXT) IS NULL OR b.nome_normalizado = %s)
                   AND (
@@ -147,13 +142,12 @@ class RepositorioInteracoes:
                 nome_normalizado=linha["nome_normalizado"],
                 numero_registro=linha["numero_registro"],
                 expediente=linha["expediente"],
-                caminho_pdf=resolver_caminho(linha["caminho_pdf"]),
-                caminho_pdf_banco=linha["caminho_pdf"],
+                caminho_pdf=localizar_pdf(linha["nome_normalizado"], linha["numero_registro"]),
                 precisa_interacoes=reprocessar or linha["precisa_interacoes"],
                 precisa_cadastro=reprocessar or linha["precisa_cadastro"],
             )
             for linha in linhas
-            if resolver_caminho(linha["caminho_pdf"]).is_file()
+            if localizar_pdf(linha["nome_normalizado"], linha["numero_registro"]).is_file()
         ]
         fim = None if limite is None else inicio + limite
         return candidatas[inicio:fim]
@@ -185,8 +179,6 @@ class RepositorioInteracoes:
             comando = """
                 INSERT INTO bulas_interacoes (
                     nome_normalizado,
-                    numero_registro,
-                    expediente,
                     trecho_interacoes,
                     status_extracao,
                     detalhe_revisao,
@@ -194,10 +186,8 @@ class RepositorioInteracoes:
                     tempo_inferencia_segundos,
                     tempo_total_segundos
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (nome_normalizado) DO UPDATE SET
-                    numero_registro = EXCLUDED.numero_registro,
-                    expediente = EXCLUDED.expediente,
                     trecho_interacoes = EXCLUDED.trecho_interacoes,
                     status_extracao = EXCLUDED.status_extracao,
                     detalhe_revisao = EXCLUDED.detalhe_revisao,
@@ -211,8 +201,6 @@ class RepositorioInteracoes:
             comando = """
                 INSERT INTO bulas_interacoes (
                     nome_normalizado,
-                    numero_registro,
-                    expediente,
                     trecho_interacoes,
                     status_extracao,
                     detalhe_revisao,
@@ -220,7 +208,7 @@ class RepositorioInteracoes:
                     tempo_inferencia_segundos,
                     tempo_total_segundos
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (nome_normalizado) DO NOTHING
             """
 
@@ -231,8 +219,6 @@ class RepositorioInteracoes:
                         comando,
                         (
                             bula.nome_normalizado,
-                            bula.numero_registro,
-                            bula.expediente,
                             trecho_interacoes,
                             status_extracao,
                             detalhe_revisao,
