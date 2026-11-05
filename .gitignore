@@ -69,8 +69,6 @@ apps/api_interacoes/relatorios/
 apps/api_interacoes/logs/
 pipelines/resumos_interacoes/relatorios/
 pipelines/resumos_interacoes/logs/
-pipelines/inclusao_medicamentos/logs/
-pipelines/inclusao_medicamentos/relatorios/
 
 # Artefatos locais; somente o backup de distribuicao revisado e versionado.
 backups_banco/*
@@ -79,3 +77,10 @@ backups_banco/*
 .doc_build_venv/
 TCCII_publish_worktree/
 /docs/
+pipelines/inclusao_medicamentos/logs/
+pipelines/inclusao_medicamentos/perfil_chrome*/
+
+.venv_readequacao/
+pipelines/inclusao_medicamentos/relatorios/
+
+.vercel/
