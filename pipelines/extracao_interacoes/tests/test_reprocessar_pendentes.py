@@ -56,4 +56,4 @@ class TestRetentativa(unittest.TestCase):
         sql, valores = conexao.execute.call_args.args
         self.assertIn('WHERE destino.status_extracao = ANY', sql)
         self.assertNotIn('CONCLUIDO', valores[-1])
-        self.assertEqual(valores[:4], ('aas', '123', None, 'Texto valido.'))
+        self.assertEqual(valores[:2], ('aas', 'Texto valido.'))

@@ -1,7 +1,7 @@
 """Persistência do cadastro em bulas; não acessa bulas_interacoes."""
 from pathlib import Path
 
-from pipelines.caminhos import resolver_caminho
+from pipelines.caminhos import localizar_pdf
 
 from .erros import ErroBancoError, EsquemaBancoIncompativelError
 from .modelos import BulaParaExtracao
@@ -31,10 +31,9 @@ class RepositorioCadastro:
                   reprocessar=False, somente_composicao=False):
         with self.conexao.cursor() as cursor:
             cursor.execute("""
-                SELECT nome_normalizado, numero_registro, expediente, caminho_pdf
+                SELECT nome_normalizado, numero_registro, expediente
                 FROM public.bulas
                 WHERE status = 'CONCLUIDO' AND numero_registro IS NOT NULL
-                  AND NULLIF(BTRIM(caminho_pdf), '') IS NOT NULL
                   AND (CAST(%s AS TEXT) IS NULL OR nome_normalizado = %s)
                   AND ((%s AND (%s OR NULLIF(BTRIM(composicao), '') IS NULL))
                     OR (NOT %s AND (%s OR NULLIF(BTRIM(principios_ativos), '') IS NULL
@@ -47,7 +46,7 @@ class RepositorioCadastro:
         # PDFs ausentes são reportados no lote, em vez de desaparecerem da seleção.
         return [BulaParaExtracao(
             r["nome_normalizado"], r["numero_registro"], r["expediente"],
-            resolver_caminho(r["caminho_pdf"]), r["caminho_pdf"],
+            localizar_pdf(r["nome_normalizado"], r["numero_registro"]),
         ) for r in registros]
 
     def gravar(self, bula, resultado, *, reprocessar=False):
@@ -69,11 +68,9 @@ class RepositorioCadastro:
                         WHERE nome_normalizado = %s
                           AND numero_registro IS NOT DISTINCT FROM %s
                           AND expediente IS NOT DISTINCT FROM %s
-                          AND caminho_pdf = %s
                           AND status = 'CONCLUIDO'
                     """, (ativo, reprocessar, ativo, reprocessar, resultado.composicao,
-                          bula.nome_normalizado, bula.numero_registro, bula.expediente,
-                          bula.caminho_pdf_banco or str(bula.caminho_pdf)))
+                          bula.nome_normalizado, bula.numero_registro, bula.expediente))
                     if cursor.rowcount != 1:
                         raise ErroBancoError("Bula mudou desde a seleção; cadastro anterior preservado.")
         except ErroBancoError:

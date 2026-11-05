@@ -16,7 +16,7 @@ sys.path.insert(0, str(BASE.parent.parent))
 import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
-from pipelines.caminhos import resolver_caminho
+from pipelines.caminhos import localizar_pdf
 
 from pipelines.extracao_interacoes.erros import ErroBancoError
 from pipelines.extracao_interacoes.main import configuracao_do_ambiente, configurar_log
@@ -46,11 +46,11 @@ def elegivel(status, nome, nomes_csv):
 
 def selecionar(conexao, nomes_csv):
     registros = conexao.execute('''
-        SELECT b.nome_normalizado, b.numero_registro, b.expediente, b.caminho_pdf,
+        SELECT b.nome_normalizado, b.numero_registro, b.expediente,
                bi.status_extracao, to_jsonb(bi) AS anterior
         FROM public.bulas b
         LEFT JOIN public.bulas_interacoes bi USING(nome_normalizado)
-        WHERE b.status = 'CONCLUIDO' AND b.caminho_pdf IS NOT NULL
+        WHERE b.status = 'CONCLUIDO'
           AND b.numero_registro IS NOT NULL
           AND (bi.status_extracao = ANY(%s::text[])
                OR (bi.nome_normalizado IS NULL AND b.nome_normalizado = ANY(%s::text[])))
@@ -81,13 +81,11 @@ class RepositorioRetentativa:
         with self.conexao.transaction():
             cursor = self.conexao.execute('''
                 INSERT INTO public.bulas_interacoes AS destino
-                    (nome_normalizado, numero_registro, expediente, trecho_interacoes,
+                    (nome_normalizado, trecho_interacoes,
                      status_extracao, detalhe_revisao, tempo_leitura_segundos,
                      tempo_inferencia_segundos, tempo_total_segundos)
-                VALUES (%s,%s,%s,%s,'CONCLUIDO',NULL,%s,%s,%s)
+                VALUES (%s,%s,'CONCLUIDO',NULL,%s,%s,%s)
                 ON CONFLICT (nome_normalizado) DO UPDATE SET
-                    numero_registro=EXCLUDED.numero_registro,
-                    expediente=EXCLUDED.expediente,
                     trecho_interacoes=EXCLUDED.trecho_interacoes,
                     status_extracao=EXCLUDED.status_extracao,
                     detalhe_revisao=NULL,
@@ -95,8 +93,7 @@ class RepositorioRetentativa:
                     tempo_inferencia_segundos=EXCLUDED.tempo_inferencia_segundos,
                     tempo_total_segundos=EXCLUDED.tempo_total_segundos
                 WHERE destino.status_extracao = ANY(%s::text[])
-            ''', (bula.nome_normalizado, bula.numero_registro, bula.expediente,
-                  trecho_interacoes, dados.get('tempo_leitura_segundos'),
+            ''', (bula.nome_normalizado, trecho_interacoes, dados.get('tempo_leitura_segundos'),
                   dados.get('tempo_inferencia_segundos'), dados.get('tempo_total_segundos'),
                   sorted(PENDENTES)))
             if cursor.rowcount != 1:
@@ -126,7 +123,7 @@ def main():
         if not args.executar or not registros:
             return 0
         # Falhar antes de qualquer gravacao, sem ocultar PDFs ausentes.
-        ausentes = [r['nome_normalizado'] for r in registros if not resolver_caminho(r['caminho_pdf']).is_file()]
+        ausentes = [r['nome_normalizado'] for r in registros if not localizar_pdf(r['nome_normalizado'], r['numero_registro']).is_file()]
         if ausentes:
             raise SystemExit('PDFs nao encontrados: ' + ', '.join(ausentes))
         nomes = [r['nome_normalizado'] for r in registros]
@@ -144,7 +141,7 @@ def main():
         provedor.testar()
         servico = ServicoExtracaoInteracoes(provedor, cfg)
         bulas = [BulaParaExtracao(r['nome_normalizado'], r['numero_registro'], r['expediente'],
-                                 resolver_caminho(r['caminho_pdf'])) for r in registros]
+                                 localizar_pdf(r['nome_normalizado'], r['numero_registro'])) for r in registros]
         with RelatorioCsv(pasta/'resultado.csv') as relatorio:
             resumo = processar_lote(bulas, servico, RepositorioRetentativa(conexao), relatorio, reprocessar=True)
         depois = assinatura_fora_do_lote(conexao, nomes)

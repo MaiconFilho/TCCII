@@ -42,18 +42,9 @@ impede gravar um cadastro válido e vice-versa. O CSV informa `status_cadastro`,
 cadastro; exclui a leitura compartilhada e a gravação. As métricas anteriores
 continuam medindo apenas a extração de interações, incluindo a leitura do PDF.
 
-Em instalações novas, o criador de `bulas` em
-`pipelines/scraping_anvisa/anvisa_scraper/controle.py` já inclui os campos.
-Para uma base antiga, execute manualmente, no banco do projeto:
-
-```sql
-BEGIN;
-SET LOCAL lock_timeout = '5s';
-ALTER TABLE public.bulas
-    ADD COLUMN IF NOT EXISTS principios_ativos TEXT,
-    ADD COLUMN IF NOT EXISTS composicao TEXT;
-COMMIT;
-```
+A instalação nova usa a baseline [banco/modelo.sql](../../banco/modelo.sql).
+Para base existente, siga o diagnóstico e migração controlada do
+[guia do banco](../../banco/README.md), sem reaplicar inicializadores antigos.
 
 O extrator verifica o esquema antes de carregar o modelo; não aplica essa
 migração automaticamente. O scraper apenas baixa a bula: os novos campos são
@@ -250,71 +241,23 @@ O diagnóstico executa leitura/OCR e informa títulos, limites, páginas e indí
 encontrados. `SEM_TITULO` é uma classificação automática, não uma comprovação
 de ausência. O destino deve ser um arquivo novo.
 
-## Banco de dados
+## Banco de dados e PDFs
 
-[criar_banco.sql](../scraping_anvisa/criar_banco.sql) e `repositorio.py` definem o mesmo esquema.
-O comando principal cria a tabela se ela não existir. Uma tabela antiga não é
-migrada automaticamente.
+A estrutura canônica está em [banco/modelo.sql](../../banco/modelo.sql).
+`bulas_interacoes` tem sete campos: `nome_normalizado` (PK/FK), `trecho_interacoes`,
+`status_extracao`, `detalhe_revisao` e os três tempos. Registro e expediente são
+lidos do cadastro em `bulas`, sem cópias persistidas na extração.
 
-| Coluna | Conteúdo |
-| --- | --- |
-| `nome_normalizado` | Chave primária e referência à tabela `bulas` |
-| `numero_registro`, `expediente` | Identificadores textuais da bula |
-| `trecho_interacoes` | Título e corpo completo; NULL quando não confirmado |
-| `status_extracao` | Conclusão, ausência de seção ou revisão manual |
-| `detalhe_revisao` | Motivo da pendência |
-| `tempo_leitura_segundos` | Leitura e OCR/cache |
-| `tempo_inferencia_segundos` | Chamadas ao modelo |
-| `tempo_total_segundos` | Extração completa, incluindo validações |
+Não há coluna de caminho de PDF. `INTERAMED_PDF_DIR` configura o diretório,
+com padrão `pipelines/scraping_anvisa/pdfs`. O arquivo usa o nome real do coletor,
+por exemplo `ablok_plus_109740092_profissional.pdf`. A resolução não escolhe outro
+PDF por aproximação. A API web lê o texto persistido e não precisa desses arquivos.
 
-Os três tempos usam `NUMERIC(12,3)`: `90.500` representa 90,5 segundos,
-ou 1 minuto e 30,5 segundos. O total não inclui carregamento/download do modelo,
-smoke test, seleção no banco ou persistência do resultado. O tempo de OCR já
-está incluído na leitura e no total.
-
-Para atualizar uma tabela antiga, execute manualmente no banco:
-
-```sql
-BEGIN;
-SET LOCAL lock_timeout = '5s';
-
-ALTER TABLE public.bulas_interacoes
-    ADD COLUMN IF NOT EXISTS tempo_leitura_segundos NUMERIC(12,3),
-    ADD COLUMN IF NOT EXISTS tempo_inferencia_segundos NUMERIC(12,3),
-    ADD COLUMN IF NOT EXISTS tempo_total_segundos NUMERIC(12,3),
-    ADD COLUMN IF NOT EXISTS status_extracao TEXT,
-    ADD COLUMN IF NOT EXISTS detalhe_revisao TEXT;
-
-ALTER TABLE public.bulas_interacoes
-    ALTER COLUMN tempo_leitura_segundos TYPE NUMERIC(12,3)
-        USING round(tempo_leitura_segundos::numeric, 3),
-    ALTER COLUMN tempo_inferencia_segundos TYPE NUMERIC(12,3)
-        USING round(tempo_inferencia_segundos::numeric, 3),
-    ALTER COLUMN tempo_total_segundos TYPE NUMERIC(12,3)
-        USING round(tempo_total_segundos::numeric, 3);
-
-UPDATE public.bulas_interacoes
-SET status_extracao = CASE
-    WHEN trecho_interacoes IS NULL THEN 'SEM_SECAO_INTERACOES'
-    ELSE 'CONCLUIDO'
-END
-WHERE status_extracao IS NULL;
-
-ALTER TABLE public.bulas_interacoes
-    ALTER COLUMN status_extracao SET DEFAULT 'CONCLUIDO',
-    ALTER COLUMN status_extracao SET NOT NULL;
-COMMIT;
-```
-
-Para consultar os resultados e métricas:
-
-```sql
-SELECT nome_normalizado, status_extracao, trecho_interacoes,
-       tempo_total_segundos,
-       round(tempo_total_segundos / 60, 2) AS tempo_total_minutos
-FROM public.bulas_interacoes
-ORDER BY nome_normalizado;
-```
+Os tempos NUMERIC medem leitura/OCR, inferência e total da extração; não se
+fabricam métricas ausentes. Ausência de seção e revisão continuam distintas.
+Uma correção excepcional de extração com resultados existentes exige retirada
+explícita dos processamentos antes de mudar a fonte; novas falhas não apagam
+uma conclusão anterior. A migração não executa lotes de extração.
 
 ## Status e limites de interpretação
 

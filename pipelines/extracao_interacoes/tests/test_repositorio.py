@@ -77,18 +77,17 @@ class TestRepositorioInteracoes(unittest.TestCase):
                         self.assertIn(f"{nome} = EXCLUDED.{nome}", consulta)
 
     def test_criacao_sql_e_python_tem_o_mesmo_esquema_com_metricas(self):
-        script = (Path(__file__).resolve().parents[2] / "scraping_anvisa" / "criar_banco.sql").read_text(encoding="utf-8")
-        sql = "CREATE TABLE IF NOT EXISTS bulas_interacoes (" + script.split(
-            "CREATE TABLE IF NOT EXISTS bulas_interacoes (", 1
-        )[1].split(";", 1)[0]
-        self.assertEqual(" ".join(sql.strip().rstrip(";").split()), " ".join(SQL_CRIAR_TABELA.split()))
-        for nome in ("tempo_leitura_segundos", "tempo_inferencia_segundos", "tempo_total_segundos"):
-            self.assertIn(f"{nome} NUMERIC(12,3)", sql)
+        from banco.operacao import MODELO
+        self.assertEqual(len(MODELO['bulas_interacoes']),7)
+        for nome in MODELO['bulas_interacoes']:
+            self.assertIn(nome,SQL_CRIAR_TABELA)
+        self.assertNotIn('numero_registro',SQL_CRIAR_TABELA)
+        self.assertNotIn('expediente',SQL_CRIAR_TABELA)
 
     def test_selecao_filtra_duplicidade_e_preserva_ordem_deterministica(self) -> None:
         with tempfile.TemporaryDirectory() as pasta:
-            pdf_a = Path(pasta) / "a.pdf"
-            pdf_b = Path(pasta) / "b.pdf"
+            pdf_a = Path(pasta) / "a_001_profissional.pdf"
+            pdf_b = Path(pasta) / "b_002_profissional.pdf"
             pdf_a.write_bytes(b"%PDF")
             pdf_b.write_bytes(b"%PDF")
             cursor = CursorFalso(
@@ -113,7 +112,9 @@ class TestRepositorioInteracoes(unittest.TestCase):
             )
             repositorio = criar_repositorio(cursor)
 
-            selecionadas = repositorio.selecionar_bulas(inicio=1, limite=1)
+            from unittest.mock import patch
+            with patch.dict("os.environ", {"INTERAMED_PDF_DIR":pasta}):
+                selecionadas = repositorio.selecionar_bulas(inicio=1, limite=1)
 
         consulta, parametros = cursor.consultas[0]
         self.assertIn("b.status = 'CONCLUIDO'", consulta)
@@ -152,10 +153,10 @@ class TestRepositorioInteracoes(unittest.TestCase):
         repositorio.gravar_resultado(bula, "trecho integral")
 
         consulta, parametros = cursor.consultas[0]
-        self.assertIn("VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", consulta)
+        self.assertIn("VALUES (%s, %s, %s, %s, %s, %s, %s)", consulta)
         self.assertEqual(
             parametros,
-            ("medicamento", "001234", "000567", "trecho integral", "CONCLUIDO", None, None, None, None),
+            ("medicamento", "trecho integral", "CONCLUIDO", None, None, None, None),
         )
         self.assertEqual(repositorio.conexao.transacoes, 1)
 
@@ -178,12 +179,12 @@ class TestRepositorioInteracoes(unittest.TestCase):
         sql, parametros = cursor.consultas[0]
         self.assertIn("WHERE EXCLUDED.status_extracao <> 'REVISAO_MANUAL'", sql)
         self.assertIn("OR bulas_interacoes.status_extracao = 'REVISAO_MANUAL'", sql)
-        self.assertEqual(parametros[4:6], ("REVISAO_MANUAL", "Limite incerto"))
+        self.assertEqual(parametros[2:4], ("REVISAO_MANUAL", "Limite incerto"))
 
     def test_ausencia_e_pendencia_possuem_status_diferentes(self):
         cursor = CursorFalso()
         criar_repositorio(cursor).gravar_resultado(criar_bula(), None)
-        self.assertEqual(cursor.consultas[0][1][4], "SEM_SECAO_INTERACOES")
+        self.assertEqual(cursor.consultas[0][1][2], "SEM_SECAO_INTERACOES")
 
     def test_reprocessamento_atualiza_tambem_os_identificadores(self) -> None:
         cursor = CursorFalso()
@@ -196,9 +197,9 @@ class TestRepositorioInteracoes(unittest.TestCase):
 
         consulta, parametros = cursor.consultas[0]
         self.assertIn("DO UPDATE", consulta)
-        self.assertIn("numero_registro = EXCLUDED.numero_registro", consulta)
-        self.assertIn("expediente = EXCLUDED.expediente", consulta)
-        self.assertEqual(parametros[1:3], ("001234", "000567"))
+        self.assertNotIn("numero_registro", consulta)
+        self.assertNotIn("expediente", consulta)
+        self.assertEqual(parametros[1:3], ("trecho novo", "CONCLUIDO"))
 
     def test_reprocessar_inclui_registros_existentes_na_selecao(self) -> None:
         cursor = CursorFalso()
@@ -209,7 +210,7 @@ class TestRepositorioInteracoes(unittest.TestCase):
 
     def test_reprocessar_marca_as_duas_etapas_mesmo_ja_preenchidas(self) -> None:
         with tempfile.TemporaryDirectory() as pasta:
-            pdf = Path(pasta) / "bula.pdf"
+            pdf = Path(pasta) / "medicamento_001_profissional.pdf"
             pdf.write_bytes(b"%PDF")
             cursor = CursorFalso([{
                 "nome_normalizado": "medicamento",
@@ -219,7 +220,9 @@ class TestRepositorioInteracoes(unittest.TestCase):
                 "precisa_interacoes": False,
                 "precisa_cadastro": False,
             }])
-            selecionadas = criar_repositorio(cursor).selecionar_bulas(reprocessar=True)
+            from unittest.mock import patch
+            with patch.dict("os.environ", {"INTERAMED_PDF_DIR":pasta}):
+                selecionadas = criar_repositorio(cursor).selecionar_bulas(reprocessar=True)
         self.assertTrue(selecionadas[0].precisa_interacoes)
         self.assertTrue(selecionadas[0].precisa_cadastro)
 
