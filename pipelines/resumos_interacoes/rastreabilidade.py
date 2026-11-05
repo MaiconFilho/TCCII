@@ -3,13 +3,14 @@
 import hashlib
 import json
 
-VERSAO_REESCRITA = "linguagem-simples/36"
+VERSAO_REESCRITA = "linguagem-simples/37"
+VERSAO_MODELO_FIXO = VERSAO_REESCRITA
 # A 36 reconstrói com a referência focada no alvo (prompt e validação), completa
 # frases cortadas pela bula e troca coadministr*/clearance no acabamento.
 # A 35 acrescenta a retomada dos blocos da reconstrução do resumo geral.
 # Publicações anteriores continuam compatíveis quando fonte, hash e modelo correspondem.
 VERSOES_INDIVIDUAIS = frozenset({"linguagem-simples/25", "linguagem-simples/26"})
-VERSOES_COMPATIVEIS = frozenset({VERSAO_REESCRITA, "linguagem-simples/35", "linguagem-simples/34", "linguagem-simples/33", "linguagem-simples/32", "linguagem-simples/31", "linguagem-simples/30", "linguagem-simples/29", "linguagem-simples/28", "linguagem-simples/27"}) | VERSOES_INDIVIDUAIS
+VERSOES_COMPATIVEIS = frozenset({VERSAO_REESCRITA, "linguagem-simples/36", "linguagem-simples/35", "linguagem-simples/34", "linguagem-simples/33", "linguagem-simples/32", "linguagem-simples/31", "linguagem-simples/30", "linguagem-simples/29", "linguagem-simples/28", "linguagem-simples/27"}) | VERSOES_INDIVIDUAIS
 
 
 def hash_dados(dados) -> str:
@@ -19,8 +20,7 @@ def hash_dados(dados) -> str:
 
 def entrada_card(linha: dict) -> dict:
     entrada = {"tipo": "card", "origem": linha["medicamento_origem"],
-            "processamento_id": linha["processamento_id"], "hash_trecho": linha["hash_trecho"],
-            "sha256_pdf": linha.get("sha256_pdf"), "id": linha["id"], "alvo": linha["alvo"],
+            "processamento_id": linha["processamento_id"], "id": linha["id"], "alvo": linha["alvo"],
             "principios_ativos": linha.get("principios_ativos"),
             "tipo_alvo": linha["tipo_alvo"], "resumo_original": linha.get("resumo_card") or "",
             "evidencias": [{"id": linha["id"], "alvo": linha["alvo"], "texto": linha["evidencia"]}]}
@@ -35,16 +35,17 @@ def entrada_card(linha: dict) -> dict:
 
 def entrada_geral(linha: dict, interacoes: list[dict]) -> dict:
     return {"tipo": "geral", "origem": linha["medicamento_origem"],
-            "processamento_id": linha["processamento_id"], "hash_trecho": linha["hash_trecho"],
-            "sha256_pdf": linha.get("sha256_pdf"), "resumo_original": linha.get("resumo_geral") or "",
+            "processamento_id": linha["processamento_id"], "resumo_original": linha.get("resumo_geral") or "",
             "principios_ativos": linha.get("principios_ativos"),
             "evidencias": [{"id": i["id"], "alvo": i["alvo"], "texto": i["evidencia"]}
                            for i in sorted(interacoes, key=lambda i: i["id"])]}
 
 
-def simples_atual(texto, controle, entrada, modelo=None) -> bool:
+def simples_atual(texto, controle, entrada, modelo=None, *, legado_validado=False) -> bool:
     """Texto antigo permanece armazenado, mas nunca é servido com entradas novas."""
     publicado = (controle or {}).get("publicado") or {}
+    if (controle or {}).get("entrada_invalidada"):
+        return False
     referencia = entrada
     if publicado.get("prompt") in VERSOES_INDIVIDUAIS and entrada.get("resumos_agrupados"):
         # As versões anteriores à consolidação gravavam cada registro
@@ -60,7 +61,10 @@ def simples_atual(texto, controle, entrada, modelo=None) -> bool:
     return bool(texto and texto.strip()
                 and publicado.get("status") == "CONCLUIDO"
                 and publicado.get("prompt") in VERSOES_COMPATIVEIS
-                and publicado.get("entrada_hash") == hash_dados(referencia)
+                and (publicado.get("entrada_hash") == hash_dados(referencia)
+                     or (legado_validado and publicado.get("prompt") != VERSAO_MODELO_FIXO
+                         and "hash_trecho" not in referencia
+                         and publicado.get("id") == referencia.get("id", referencia["processamento_id"])))
                 and publicado.get("texto_hash") == hash_dados(texto)
                 and (modelo is None or publicado.get("modelo") == modelo))
 
@@ -68,7 +72,8 @@ def simples_atual(texto, controle, entrada, modelo=None) -> bool:
 def reescrita_salva(texto, controle) -> bool:
     """Retomada: publicação já salva não é refeita por mudança de versão."""
     publicado = (controle or {}).get("publicado") or {}
-    return bool(texto and texto.strip() and publicado.get("status") == "CONCLUIDO")
+    return bool(texto and texto.strip() and publicado.get("status") == "CONCLUIDO"
+                and not (controle or {}).get('entrada_invalidada'))
 
 
 def origem_original(linha: dict) -> str:

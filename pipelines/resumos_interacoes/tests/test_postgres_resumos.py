@@ -75,6 +75,7 @@ class TestResumosPostgres(unittest.TestCase):
     def test_reparo_de_recorte_amplia_literal_preserva_ids_e_encerra_pendencia(self):
         from pipelines.identificacao_interacoes.tests.test_contexto_evidencia import BLOCO, LISTA
         # Fonte e identificação coerentes, com o recorte legado cortado antes do efeito.
+        self.conexao.execute("UPDATE processamentos_interacoes SET invalidado_em=now() WHERE medicamento_origem='marevan'")
         self.conexao.execute("UPDATE bulas_interacoes SET trecho_interacoes = %s", (BLOCO,))
         fonte = self.identificacao.selecionar_fontes(nome_normalizado="marevan")[0]
         item = RelacaoIdentificada("linezolida", TipoAlvo.PRINCIPIO_ATIVO, "Texto anterior.", LISTA, 0, len(LISTA), 0)
@@ -236,6 +237,7 @@ class TestResumosPostgres(unittest.TestCase):
         vizinha = "sulfonilureias: o fluconazol prolonga a meia-vida das sulfonilureias."
         completo = secao + "\n" + vizinha
         recorte = "Esta combinação pode ser usada com ajuste da dose de sirolimo.\n" + vizinha
+        self.conexao.execute("UPDATE processamentos_interacoes SET invalidado_em=now() WHERE medicamento_origem='marevan'")
         self.conexao.execute("UPDATE bulas_interacoes SET trecho_interacoes = %s", (completo,))
         fonte = self.identificacao.selecionar_fontes(nome_normalizado="marevan")[0]
         item = RelacaoIdentificada("sirolimo", TipoAlvo.PRINCIPIO_ATIVO, "Texto anterior.", recorte, 0, len(recorte), 0)
@@ -291,6 +293,7 @@ class TestResumosPostgres(unittest.TestCase):
 
     def test_fonte_desatualizada_nao_expoe_resumo(self):
         self.gerar()
+        self.conexao.execute("UPDATE processamentos_interacoes SET invalidado_em=now() WHERE medicamento_origem='marevan'")
         self.conexao.execute("UPDATE bulas_interacoes SET trecho_interacoes = %s WHERE nome_normalizado = %s",
                              (TRECHO + " Texto novo.", "marevan"))
         self.assertIsNone(self.repo.fonte("marevan"))
