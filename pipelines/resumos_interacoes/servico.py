@@ -275,7 +275,7 @@ class GeradorResumos:
 def identidade(fonte):
     if fonte is None:
         return None
-    return (fonte["processamento_id"], fonte["hash_trecho"],
+    return (fonte["processamento_id"],
             [(i["id"], i["alvo"], i["tipo_alvo"], i["evidencia"]) for i in fonte["interacoes"]])
 
 

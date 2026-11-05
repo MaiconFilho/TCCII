@@ -356,7 +356,7 @@ campos. O Qwen2.5 da primeira etapa permanece inalterado.
 4. O prompt em `prompts.py` (`INSTRUCOES_REESCRITA`) pede linguagem simples e
    JSON com `status`, `texto` e `motivo`. O contrato completo é esse texto do código;
    a versão conjunta do prompt e das verificações está em
-   `rastreabilidade.VERSAO_REESCRITA` (`linguagem-simples/36`).
+   `rastreabilidade.VERSAO_REESCRITA` (`linguagem-simples/37`).
 5. Validações independentes da opinião do modelo procuram alterações de direção,
    papéis em construções explícitas, incerteza, negação, restrições, doses, vias,
    condições, gravidade e orientações acrescentadas. JSON vazio, repetido,
@@ -778,9 +778,10 @@ aprovação final em `reescrita_controle`, sem criar novas tabelas ou mudar PDFs
 
 ### Campos, vigência e rastreabilidade
 
-As colunas da etapa 007 já existem no banco de publicação e no backup de
-distribuição. Esta atualização não cria nem altera migrações; a API pressupõe
-que esses campos existam. Os campos anteriores continuam preservados.
+A instalação usa a baseline completa de [banco/modelo.sql](../../banco/modelo.sql).
+Para base existente, use a migração explícita do [guia do banco](../../banco/README.md).
+Não reaplique SQLs históricos. A migração preserva textos e JSONBs existentes,
+sem geração de lotes nem alteração da origem/modelo dos resumos.
 
 | Tabela.campo novo | Conteúdo |
 | --- | --- |
@@ -822,11 +823,11 @@ Para preparar outro ambiente equivalente:
 
 Use o `DATABASE_URL` já configurado nos resumos/identificação. As opções
 `REESCRITA_*` estão em `.env.example`. Não copie as variáveis do segundo modelo
-para as variáveis `IDENTIFICACAO_*` do primeiro. O backup de distribuição já
-inclui as colunas necessárias; não reaplique SQLs no banco de publicação para
-executar esta etapa.
+para as variáveis `IDENTIFICACAO_*` do primeiro. Prepare o banco pelo guia do modelo aprovado; o executor reconhece a baseline e não reaplica SQLs históricos.
 
 ```powershell
+.\pipelines\extracao_interacoes\.venv\Scripts\python.exe -m pipelines.identificacao_interacoes.aplicar_migracoes
+
 # Confere a seleção, sem carregar modelo nem gravar.
 .\pipelines\extracao_interacoes\.venv\Scripts\python.exe -m pipelines.resumos_interacoes.reescrita --nome-normalizado aerolin --listar
 
@@ -896,7 +897,19 @@ avaliação precisa de amostra de referência conferida por pessoas, de preferê
 com apoio de profissional qualificado.
 
 Arquivos novos: `reescrita.py` (CLI/coordenação), `rastreabilidade.py` (hashes e
-vigência), colunas de reescrita já existentes e `tests/test_reescrita.py`. Os demais ajustes reutilizam
+vigência), SQL 007 e `tests/test_reescrita.py`. Os demais ajustes reutilizam
 `prompts.py`, `validacao.py`, `repositorio.py`, `provedor.py` e os contratos e
 componentes existentes da API/frontend. `servico.py` registra a origem real dos
 próximos resumos do primeiro estágio, sem trocar seu modelo nem suas regras.
+
+
+## Compatibilidade com a base fixa
+
+A versão 37 calcula a entrada das reescritas somente com os campos mantidos.
+Publicações legadas são conferidas antes da migração com sua entrada original,
+sem alterar os JSONBs; uma inconsistência bloqueia a retirada das colunas.
+O hash do texto/status continuam sendo verificados. Alterações posteriores de
+originais/evidências/grupos/princípios ativos invalidam a publicação por trigger.
+Não há fonte ou PDF removido escondido em outro campo. A identidade da retomada
+do geral usa processamento e evidências atuais, sem hash de fonte persistido.
+Consulte [banco/README.md](../../banco/README.md) para preservação e implantação.

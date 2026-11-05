@@ -151,7 +151,7 @@ class RepositorioResumos:
         with self.conexao.transaction():
             self.conexao.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             p = self.conexao.execute("""
-                SELECT v.id, v.hash_trecho, p.resumo_geral, b.trecho_interacoes
+                SELECT v.id, p.resumo_geral, b.trecho_interacoes
                 FROM processamentos_interacoes_vigentes v
                 JOIN processamentos_interacoes p ON p.id = v.id
                 JOIN bulas_interacoes b ON b.nome_normalizado = v.medicamento_origem
@@ -173,7 +173,7 @@ class RepositorioResumos:
                 item["evidencia_original"] = item["evidencia"]
                 item["evidencia"] = completa
         return {"nome_normalizado": nome, "processamento_id": p["id"],
-                "hash_trecho": p["hash_trecho"], "resumo_geral": p["resumo_geral"],
+                "resumo_geral": p["resumo_geral"],
                 "interacoes": [r for r in linhas if not relacao_nao_positiva(r)]}
 
     def gravar(self, fonte, modelo, inicio, resultado, geral, cards):
@@ -234,7 +234,7 @@ def unidades_reescrita(fonte):
         entrada = entrada_card({**item, "resumos_mesmo_alvo": grupo})
         individuais = all(((i.get("reescrita_controle") or {}).get("publicado") or {}).get("prompt")
                           in VERSOES_INDIVIDUAIS for i in grupo)
-        completos = all(simples_atual(i.get("resumo_card_simples"), i.get("reescrita_controle"), entrada)
+        completos = all(simples_atual(i.get("resumo_card_simples"), i.get("reescrita_controle"), entrada, legado_validado=fonte.get("_legado_validado",False))
                         and (individuais or i.get("resumo_card_simples") == item.get("resumo_card_simples")) for i in grupo)
         unidades.append({"tipo": "card", "id": item["id"], "ids": [i["id"] for i in grupo], "entrada": entrada,
                          "concluido": all(reescrita_salva(i.get("resumo_card_simples"), i.get("reescrita_controle")) for i in grupo),
@@ -259,7 +259,7 @@ def _pendente(fonte, reprocessar):
 
 
 def _fonte_da_selecao(p, linhas=()):
-    extras = {"hash_trecho": p["hash_trecho"], "sha256_pdf": p["sha256_pdf"], "principios_ativos": p["principios_ativos"]}
+    extras = {"principios_ativos": p["principios_ativos"]}
     linhas = [{**i, **extras, "reescrita_controle": _status_publicado(i)} for i in sorted(linhas, key=lambda i: i["id"])]
     return {**p, "processamento_id": p["id"], "reescrita_controle": _status_publicado(p),
             "interacoes": [i for i in linhas if not relacao_nao_positiva(i)]}
@@ -330,11 +330,12 @@ class RepositorioReescrita(RepositorioResumos):
         if not p:
             return None
         linhas = self.conexao.execute("""
-            SELECT i.*, p.hash_trecho, p.sha256_pdf, b.principios_ativos FROM interacoes i
+            SELECT i.*, b.principios_ativos FROM interacoes i
             JOIN processamentos_interacoes p ON p.id=i.processamento_id
             JOIN bulas b ON b.nome_normalizado=p.medicamento_origem
             WHERE i.processamento_id=%s ORDER BY i.id
         """, (p["id"],)).fetchall()
+        p["_legado_validado"] = True
         p["interacoes"] = [i for i in linhas if not relacao_nao_positiva(i)]
         return p
 
@@ -361,8 +362,8 @@ class RepositorioReescrita(RepositorioResumos):
         with self.conexao.transaction():
             self.conexao.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             processamentos = self.conexao.execute("""
-                SELECT p.id, p.medicamento_origem, p.hash_trecho, p.sha256_pdf, p.resumo_geral,
-                    p.resumo_geral_simples, p.reescrita_controle->'publicado'->>'status' AS status_publicado,
+                SELECT p.id, p.medicamento_origem, p.resumo_geral,
+                    p.resumo_geral_simples, CASE WHEN p.reescrita_controle->'entrada_invalidada'='true'::jsonb THEN NULL ELSE p.reescrita_controle->'publicado'->>'status' END AS status_publicado,
                     b.principios_ativos
                 FROM processamentos_interacoes_vigentes v
                 JOIN processamentos_interacoes p ON p.id=v.id
@@ -375,7 +376,7 @@ class RepositorioReescrita(RepositorioResumos):
             ids = [p["id"] for p in processamentos if not pendente_pelo_geral(p, reprocessar)]
             interacoes = self.conexao.execute("""
                 SELECT id, processamento_id, medicamento_origem, alvo, tipo_alvo, evidencia, resumo_card,
-                    resumo_card_simples, reescrita_controle->'publicado'->>'status' AS status_publicado
+                    resumo_card_simples, CASE WHEN reescrita_controle->'entrada_invalidada'='true'::jsonb THEN NULL ELSE reescrita_controle->'publicado'->>'status' END AS status_publicado
                 FROM interacoes WHERE processamento_id=ANY(%s)
             """, (ids,)).fetchall() if ids else []
         return bulas_pendentes(processamentos, interacoes, reprocessar=reprocessar, limite=limite)
@@ -394,7 +395,7 @@ class RepositorioReescrita(RepositorioResumos):
                 if atual is None or hash_dados(atual["entrada"]) != hash_dados(unidade["entrada"]):
                     raise RuntimeError("A fonte mudou; o bloco do resumo geral não foi salvo.")
                 cursor = self.conexao.execute("""UPDATE processamentos_interacoes
-                    SET reescrita_controle=reescrita_controle || %s WHERE id=%s""",
+                    SET reescrita_controle=COALESCE(reescrita_controle,'{}'::jsonb) || %s WHERE id=%s""",
                     (Jsonb({"progresso_geral": progresso}), unidade["id"]))
                 if cursor.rowcount != 1:
                     raise RuntimeError("Não foi possível salvar o progresso do resumo geral.")
@@ -420,8 +421,10 @@ class RepositorioReescrita(RepositorioResumos):
             ids = unidade.get("ids", [unidade["id"]])
             cursor = self.conexao.execute(f"""
                 UPDATE {tabela} SET {campo}=COALESCE(%s, {campo}),
-                    reescrita_controle=reescrita_controle || %s WHERE id=ANY(%s)
-            """, (texto, Jsonb(controle), ids))
+                    reescrita_controle=CASE WHEN %s THEN
+                        (COALESCE(reescrita_controle,'{{}}'::jsonb) || %s) - 'entrada_invalidada'
+                        ELSE COALESCE(reescrita_controle,'{{}}'::jsonb) || %s END WHERE id=ANY(%s)
+            """, (texto, texto is not None, Jsonb(controle), Jsonb(controle), ids))
             if cursor.rowcount != len(ids):
                 raise ValueError("O grupo de interações mudou; reescrita não publicada.")
             if unidade["tipo"] == "geral" and texto is not None:
