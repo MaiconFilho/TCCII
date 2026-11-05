@@ -1,3 +1,8 @@
+> Experimento legado fora do modelo aprovado: o ponto de entrada está desativado.
+> Não integra API, consulta, instalação ou migração do modelo60. O código abaixo
+> documenta o experimento anterior; não execute seus inicializadores sobre a base
+> final. Dados independentes existentes foram preservados. Consulte [o guia atual](../../banco/README.md).
+
 # Conversão das interações medicamentosas em vetores
 
 Este módulo lê os trechos já gravados em `bulas_interacoes.trecho_interacoes`,
