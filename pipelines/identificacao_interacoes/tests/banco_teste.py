@@ -51,11 +51,10 @@ def _sql_esquema_base() -> str:
 
 
 def preparar(dsn: str) -> None:
-    from banco.operacao import colunas,inicializar,validar
-    with psycopg.connect(dsn, autocommit=True,row_factory=dict_row) as conexao:
+    with psycopg.connect(dsn, autocommit=True) as conexao:
         exigir_banco_isolado(conexao)
-        if not colunas(conexao): inicializar(conexao)
-        else: validar(conexao)
+        conexao.execute(_sql_esquema_base())
+    aplicar(dsn, listar_migracoes())
 
 
 def conectar(dsn: str):
@@ -89,19 +88,20 @@ def inserir_bula(
         """
         INSERT INTO bulas (
             nome_normalizado, nome_anvisa, principios_ativos, composicao,
-            numero_registro, expediente, status
+            numero_registro, expediente, sha256_pdf, data_publicacao_anvisa, status
         )
-        VALUES (%s, %s, %s, %s, %s, %s, 'CONCLUIDO')
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'CONCLUIDO')
         """,
-        (nome, nome_anvisa or nome.upper(), principios, composicao, registro, expediente),
+        (nome, nome_anvisa or nome.upper(), principios, composicao, registro, expediente,
+         sha256_pdf, data_publicacao),
     )
     if trecho is not None or status_extracao != "CONCLUIDO":
         conexao.execute(
             """
             INSERT INTO bulas_interacoes (
-                nome_normalizado, trecho_interacoes, status_extracao
+                nome_normalizado, numero_registro, expediente, trecho_interacoes, status_extracao
             )
-            VALUES (%s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s)
             """,
-            (nome, trecho, status_extracao),
+            (nome, registro, expediente, trecho, status_extracao),
         )

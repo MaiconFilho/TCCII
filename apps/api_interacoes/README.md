@@ -1,6 +1,6 @@
 # API InteraMed — consulta 2.0.0
 
-FastAPI/Pydantic sobre os resultados persistidos do [modelo aprovado](../../banco/README.md).
+FastAPI/Pydantic sobre os resultados persistidos do [modelo aprovado](../../README.md#banco).
 A API usa pool com `default_transaction_read_only=on`, timeout e SQL parametrizado.
 Não executa DDL, coleta, download, inferência ou escrita em fila, nem inicia trabalhadores.
 A inclusão automática legada não integra a base fixa; `API_INCLUSAO_MEDICAMENTOS=true`
@@ -8,9 +8,9 @@ A inclusão automática legada não integra a base fixa; `API_INCLUSAO_MEDICAMEN
 
 ## Banco e execução
 
-Prepare a instalação nova com `python -m banco.operacao inicializar` ou migre uma
-cópia validada da base existente conforme o guia do banco. Os SQLs históricos
-001–007 não são reaplicados no modelo final. `/api/saude` verifica os 60 campos,
+Prepare uma instalação nova com o SQL completo `banco/modelo.sql`, em banco vazio.
+Não aplique o SQL sobre dados existentes. O Supabase do site já está readequado.
+Os SQLs históricos não são reaplicados no modelo final. `/api/saude` verifica os 60 campos,
 tipos, views e versão; startup não tenta reparar schema.
 
 ```powershell
@@ -62,14 +62,11 @@ Controles legados são pré-validados pela migração sem alteração dos JSONBs
 Publicações novas usam a entrada dos campos mantidos, versão 37; triggers invalidam
 uma versão simples se suas entradas mudarem. O hash do texto e o status da
 publicação continuam obrigatórios. Nenhum resumo é regenerado para atender uma
-requisição. Detalhes dessa compatibilidade estão no guia do banco.
+requisição. A estrutura esperada é lida do SQL canônico, sem executar DDL na API.
 
 ## Verificação
 
-```powershell
-python -m unittest discover -s apps/api_interacoes/tests -t .
-```
-
-`IDENTIFICACAO_TEST_DATABASE_URL` habilita os testes com PostgreSQL real isolado.
-Não use produção nem o banco `TCC`. A operação remota e o backup real exigem conexão
-com credencial válida; saúde da API publicada sozinha não comprova a migração.
+A CI cria um banco isolado pelo SQL completo e verifica saúde, sugestões,
+consulta individual, pares nos dois sentidos, evidências e CORS. Não usa produção
+nem executa modelos. Os testes legados permanecem sem alterações e ainda contêm
+expectativas de fila/colunas removidas; não representam o contrato atual.

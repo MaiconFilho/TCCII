@@ -355,11 +355,11 @@ computador, crie um ambiente e instale
 
 ### Migração
 
-A instalação nova usa `python -m banco.operacao inicializar`. A atualização usa
-`banco.operacao diagnosticar`, backup, restauração/ensaio e `migrar`, conforme
-[banco/README.md](../../banco/README.md). Não execute manualmente os SQLs históricos
-001–007 sobre a baseline final. O executor antigo reconhece o modelo final e não
-os reaplica; em base antiga, exige a operação explícita.
+A instalação nova usa o SQL completo [banco/modelo.sql](../../banco/modelo.sql),
+somente em banco vazio. O executor `python -m pipelines.identificacao_interacoes.aplicar_migracoes`
+também cria uma instalação vazia ou verifica o modelo existente; ele não executa
+os arquivos históricos. Uma base antiga exige backup e migração explícita validada
+separadamente. O Supabase do site já está readequado.
 
 ## Comandos
 

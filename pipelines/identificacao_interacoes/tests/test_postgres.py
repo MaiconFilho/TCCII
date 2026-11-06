@@ -162,7 +162,6 @@ class TestPostgresReal(unittest.TestCase):
 
     def test_mudanca_da_fonte_desativa_resultado_antigo_sem_apagar(self) -> None:
         self.gravar()
-        self.conexao.execute("UPDATE processamentos_interacoes SET invalidado_em=now() WHERE medicamento_origem='origem'")
         self.conexao.execute(
             "UPDATE bulas_interacoes SET trecho_interacoes = trecho_interacoes || ' Nova frase.' WHERE nome_normalizado = 'origem'"
         )
@@ -170,11 +169,12 @@ class TestPostgresReal(unittest.TestCase):
         self.assertEqual(self.contar("interacoes"), 2)
         self.assertEqual(len(self.repositorio.selecionar_fontes(limite=None)), 1)
 
-    def test_base_fixa_exige_retirada_antes_de_corrigir_registro(self):
-        pid,_ = self.gravar()
-        with self.assertRaises(psycopg.IntegrityError):
-            self.conexao.execute("UPDATE bulas SET expediente='outro' WHERE nome_normalizado='origem'")
-        self.assertEqual(self.vigente()['id'],pid)
+    def test_bula_nova_desativa_resultado_antigo(self) -> None:
+        self.gravar()
+        self.conexao.execute("UPDATE bulas SET sha256_pdf = 'outro' WHERE nome_normalizado = 'origem'")
+        self.assertIsNone(self.vigente())
+        historico = self.conexao.execute("SELECT sha256_pdf FROM processamentos_interacoes").fetchone()
+        self.assertEqual(historico["sha256_pdf"], "pdf")
 
     def test_fonte_alterada_entre_selecao_e_gravacao(self) -> None:
         fonte = self.repositorio.selecionar_fontes(nome_normalizado="origem")[0]

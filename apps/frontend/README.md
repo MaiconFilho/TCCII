@@ -111,10 +111,9 @@ atribui a evidência a todos os componentes.
 Para produção, gere o build com `NEXT_PUBLIC_API_URL=https://interamed-api.vercel.app`
 e configure CORS da API para `https://interamed-web.vercel.app`. Essa URL participa
 do build estático; precisa de novo build para mudar. A sequência coordenada de
-banco/API/frontend está em [banco/README.md](../../banco/README.md).
+banco/API/frontend exige validar a API e o [modelo aprovado](../../README.md#banco).
 
 ```powershell
-npm.cmd test
 npm.cmd run lint
 npm.cmd run typecheck
 npm.cmd run build
