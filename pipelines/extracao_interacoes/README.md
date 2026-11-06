@@ -43,8 +43,8 @@ cadastro; exclui a leitura compartilhada e a gravação. As métricas anteriores
 continuam medindo apenas a extração de interações, incluindo a leitura do PDF.
 
 A instalação nova usa a baseline [banco/modelo.sql](../../banco/modelo.sql).
-Para base existente, siga o diagnóstico e migração controlada do
-[guia do banco](../../banco/README.md), sem reaplicar inicializadores antigos.
+Para base existente, faça backup e migração explícita validada, sem reaplicar
+inicializadores antigos. O Supabase do site já foi readequado.
 
 O extrator verifica o esquema antes de carregar o modelo; não aplica essa
 migração automaticamente. O scraper apenas baixa a bula: os novos campos são

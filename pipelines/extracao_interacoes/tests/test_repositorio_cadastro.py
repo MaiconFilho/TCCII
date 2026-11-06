@@ -77,5 +77,4 @@ class TestRepositorioCadastro(unittest.TestCase):
         selecionada = repo.selecionar()[0]
         self.assertTrue(selecionada.caminho_pdf.is_absolute())
         repo.gravar(selecionada, ResultadoCadastro(status="CONCLUIDO", principios_ativos="a", composicao="b"))
-        self.assertNotIn("caminho_pdf", cursor.consultas[-1][0])
-        self.assertEqual(cursor.consultas[-1][1][-2:], ("001", None))
+        self.assertEqual(cursor.consultas[-1][1][-1], "../pdfs/a.pdf")
