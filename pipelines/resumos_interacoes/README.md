@@ -779,7 +779,7 @@ aprovação final em `reescrita_controle`, sem criar novas tabelas ou mudar PDFs
 ### Campos, vigência e rastreabilidade
 
 A instalação usa a baseline completa de [banco/modelo.sql](../../banco/modelo.sql).
-Para base existente, use a migração explícita do [guia do banco](../../banco/README.md).
+Para base existente, faça backup e migração explícita validada; não execute o SQL de criação sobre seus dados.
 Não reaplique SQLs históricos. A migração preserva textos e JSONBs existentes,
 sem geração de lotes nem alteração da origem/modelo dos resumos.
 
@@ -912,4 +912,4 @@ O hash do texto/status continuam sendo verificados. Alterações posteriores de
 originais/evidências/grupos/princípios ativos invalidam a publicação por trigger.
 Não há fonte ou PDF removido escondido em outro campo. A identidade da retomada
 do geral usa processamento e evidências atuais, sem hash de fonte persistido.
-Consulte [banco/README.md](../../banco/README.md) para preservação e implantação.
+Consulte o [modelo aprovado](../../README.md#banco) para instalação e preservação.
