@@ -80,11 +80,11 @@ consultar_metricas.sql consultas prontas para análise dos tempos
 
 ## 1. Criar o banco PostgreSQL
 
-Crie um banco vazio por ferramenta administrativa e use
-`python -m banco.operacao inicializar --env caminho/banco-local.env`.
+Crie um banco vazio por ferramenta administrativa e execute
+[banco/modelo.sql](../../banco/modelo.sql) em uma transação.
 O arquivo `criar_banco.sql` também contém a baseline completa de cinco tabelas/60
-campos. Não o execute sobre base existente; para atualização, siga
-[banco/README.md](../../banco/README.md). O coletor não executa DDL no construtor.
+campos. Não o execute sobre base existente: uma atualização exige backup e
+migração explícita validada. O coletor não executa DDL no construtor.
 
 ## 2. Configurar a conexão
 

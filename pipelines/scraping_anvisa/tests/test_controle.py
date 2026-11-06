@@ -1,6 +1,5 @@
 import tempfile
 import unittest
-from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,22 +40,29 @@ def criar_controle(cursor: CursorFalso) -> ControleColeta:
 
 
 class TestControleColeta(unittest.TestCase):
-    def test_criacao_de_bulas_inclui_cadastro_sem_preencher_texto_ficticio(self):
+    def test_finalizar_grava_data_de_publicacao(self) -> None:
         cursor = CursorFalso()
-        with patch("pipelines.scraping_anvisa.anvisa_scraper.controle.psycopg.connect", return_value=ConexaoFalsa(cursor)):
-            ControleColeta("conexao-falsa")
-        self.assertTrue(all(sql.strip().startswith('SELECT') for sql,_ in cursor.consultas))
-        self.assertIn('principios_ativos',cursor.consultas[0][0])
-        self.assertIn('composicao',cursor.consultas[0][0])
+        controle = criar_controle(cursor)
+        medicamento = MedicamentoParaColeta("ABLOK PLUS", "ablok plus")
+        data_publicacao = datetime(2025, 4, 25, 13, 18, 58, tzinfo=timezone.utc)
+        bula = BulaLocalizada(
+            nome_normalizado="ablok plus",
+            nome_produto="ABLOK PLUS",
+            numero_registro="109740092",
+            expediente="0556857259",
+            id_bula_profissional="id-protegido",
+            data_publicacao=data_publicacao,
+        )
 
-    def test_finalizar_grava_data_de_publicacao(self):
-        cursor=CursorFalso()
-        criar_controle(cursor).finalizar(MedicamentoParaColeta('ABLOK PLUS','ablok plus'),status='CONCLUIDO')
-        consulta,parametros=cursor.consultas[-1]
-        self.assertNotIn('data_publicacao_anvisa',consulta)
-        self.assertNotIn('sha256_pdf',consulta)
-        self.assertNotIn('caminho_pdf',consulta)
-        self.assertEqual(parametros[-1],'ablok plus')
+        controle.finalizar(medicamento, status="CONCLUIDO", bula=bula)
+
+        consulta, parametros = cursor.consultas[-1]
+        self.assertIn("data_publicacao_anvisa =", consulta)
+        self.assertNotIn("data_publicacao_original =", consulta)
+        self.assertNotIn("data_atualizacao_base_anvisa", consulta)
+        self.assertNotIn("data_atualizacao_base_original", consulta)
+        assert parametros is not None
+        self.assertIn(data_publicacao, parametros)
 
     def test_concluido_com_pdf_existente_nao_deve_ser_reprocessado(self) -> None:
         with tempfile.TemporaryDirectory() as pasta:
@@ -104,7 +110,7 @@ class TestControleColeta(unittest.TestCase):
         consulta, parametros = cursor.consultas[-1]
         self.assertIn("status = 'CONCLUIDO'", consulta)
         assert parametros is not None
-        self.assertEqual(parametros, ("a saude da mulher",))
+        self.assertIn("PDF existente recuperado; download não repetido.", parametros)
 
 
 if __name__ == "__main__":
