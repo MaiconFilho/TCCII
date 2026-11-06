@@ -183,7 +183,7 @@ class TestReescrita(unittest.TestCase):
         controle, texto = item["reescrita_controle"], item["resumo_card_simples"]
         self.assertTrue(simples_atual(texto, controle, entrada_card(item), MODELO))
         for campo, valor in [("resumo_card", ORIGINAL + " Condição nova."), ("evidencia", ORIGINAL + " Nova fonte."),
-                             ("principios_ativos", "novo cadastro"), ("processamento_id", 999), ("alvo", "outro")]:
+                             ("sha256_pdf", "pdf-novo"), ("hash_trecho", "fonte-nova"), ("alvo", "outro")]:
             with self.subTest(campo=campo):
                 novo = {**item, campo: valor}
                 self.assertFalse(simples_atual(texto, controle, entrada_card(novo), MODELO))
