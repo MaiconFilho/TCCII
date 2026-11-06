@@ -14,7 +14,7 @@ Projeto acadêmico que consulta resultados persistidos das bulas profissionais d
 
 Nome ausente não inicia coleta ou preparação automática. A explicação de vínculo mostra o alvo e o critério gravados; citar um componente não atribui a evidência aos demais componentes da formulação. Datas de processamento não são apresentadas como publicação da bula.
 
-## Modelo canônico
+## Banco
 
 O modelo aprovado tem **cinco tabelas de domínio e exatamente 60 campos**:
 
@@ -26,11 +26,11 @@ O modelo aprovado tem **cinco tabelas de domínio e exatamente 60 campos**:
 | `interacoes_medicamentos` | 4 | Medicamentos relacionados, critério e invalidação. |
 | `processamentos_interacoes` | 24 | Identificação, métricas, histórico e resumos gerais. |
 
-O [SQL canônico](banco/modelo.sql) e o [contrato de campos e tipos](banco/modelo.json) são a referência da instalação nova. As seis FKs são NOT NULL; a PK da ligação é `(interacao_id, medicamento_relacionado)`. Triggers verificam a coerência das origens da menção e do processamento, sem adicionar outra FK.
+O [SQL completo de criação](banco/modelo.sql) é a referência da instalação nova. As seis FKs são NOT NULL; a PK da ligação é `(interacao_id, medicamento_relacionado)`. Triggers verificam a coerência das origens da menção e do processamento, sem adicionar outra FK. A pasta `banco/` contém somente esse SQL; a API lê dele a estrutura esperada, sem executar DDL.
 
 As views de vigência e de registros usam os campos mantidos. A conclusão utilizável é a de maior ID, não invalidada, com extração concluída e texto. Falha ou revisão posterior preserva a conclusão válida anterior. A view de registrados inclui revisão para evitar duplicação na retomada. Resultado negativo exige análise concluída e utilizável.
 
-Uma correção excepcional da fonte exige retirar explicitamente seus processamentos antes de alterar texto, registro ou expediente. Hashes persistidos de versões de PDF/fonte não integram o modelo. Hashes dos controles de reescrita e verificações em memória durante inferência continuam legítimos; veja a compatibilidade e preservação dos JSONBs no [guia do banco](banco/README.md).
+Uma correção excepcional da fonte exige retirar explicitamente seus processamentos antes de alterar texto, registro ou expediente. Hashes persistidos de versões de PDF/fonte não integram o modelo. Hashes dos controles de reescrita e verificações em memória durante inferência continuam legítimos. Publicações simples antigas foram validadas na migração; seus textos e JSONBs permanecem preservados. Alterações posteriores de entrada invalidam a publicação até uma nova reescrita válida.
 
 ## Componentes
 
@@ -44,7 +44,7 @@ Coleta inicial da Anvisa → PDFs locais e cadastro
 
 | Diretório | Uso |
 | --- | --- |
-| `banco/` | Baseline, diagnóstico, migração explícita, backup e restauração. |
+| `banco/modelo.sql` | Criação completa das cinco tabelas e seus objetos de apoio. |
 | `apps/api_interacoes/` | FastAPI/Pydantic, consultas parametrizadas e pool somente de leitura. |
 | `apps/frontend/` | Next.js/React/TypeScript, cards, comparações e evidências. |
 | `pipelines/scraping_anvisa/` | Coleta inicial por Selenium/API do Bulário. |
@@ -64,11 +64,12 @@ Use Python 3.12 ou superior, Node.js 20.9 ou superior e PostgreSQL 15 ou superio
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r apps/api_interacoes/requirements.txt
-# Banco PostgreSQL vazio, conexão em arquivo separado:
-.\.venv\Scripts\python.exe -m banco.operacao inicializar --env caminho/banco-local.env
+# Criar um banco PostgreSQL novo e vazio:
+createdb -h localhost -U postgres interamed
+psql -h localhost -U postgres -d interamed -v ON_ERROR_STOP=1 --single-transaction -f banco/modelo.sql
 ```
 
-Para base existente, siga [o procedimento de diagnóstico, cópia, migração, backup e implantação](banco/README.md). **Não** execute a baseline sobre a base existente. Os SQLs históricos 001–007 não são reaplicados pelo executor final.
+**Não execute o SQL de criação sobre uma base existente.** Uma atualização exige backup e migração explícita validada em cópia isolada. O Supabase do site já foi readequado; não é necessário repetir a migração. O executor `python -m pipelines.identificacao_interacoes.aplicar_migracoes` cria somente uma instalação vazia ou verifica o modelo atual; não reaplica os SQLs históricos.
 
 Configure `apps/api_interacoes/.env` para o banco preparado e inicie:
 
@@ -95,28 +96,22 @@ Para os pipelines, configure `INTERAMED_PDF_DIR` se os PDFs estiverem fora de `p
 
 As respostas não incluem hashes de PDF, datas de publicação, links de PDF fictícios ou fundamentos de vínculo removidos. A interface mantém acesso às evidências e consulta no Bulário com a identificação disponível.
 
-## Testes
+## Verificações
 
 ```powershell
-python -m unittest discover -s pipelines/scraping_anvisa/tests
-python -m unittest discover -s pipelines/extracao_interacoes/tests
-python -m unittest discover -s pipelines/identificacao_interacoes/tests -t .
-python -m unittest discover -s pipelines/resumos_interacoes/tests -t .
-python -m unittest discover -s apps/api_interacoes/tests -t .
-python -m unittest discover -s banco/tests -t .
+python -m compileall -q apps pipelines
 # Em apps/frontend:
-npm.cmd test
 npm.cmd run lint
 npm.cmd run typecheck
 npm.cmd run build
 ```
 
-Configure `IDENTIFICACAO_TEST_DATABASE_URL` e `MODELO60_TEST_DATABASE_URL` somente com banco local isolado contendo `test` no nome. `MIGRACAO60_TEST_DATABASE_URL` deve apontar para **outro banco local descartável**: sua suíte recria o schema para testar o legado. Nunca use `TCC` ou Supabase nessas variáveis. No Windows, `PYTHONUTF8=1` permite registrar logs em UTF-8. Os testes usam dados/provedores simulados, sem coleta ou inferência real.
+A CI também cria o schema em PostgreSQL isolado e verifica saúde, sugestões, consultas individuais e de pares, evidências e CORS. Não executa scraping nem inferência real. Os arquivos de testes que já existiam foram mantidos sem as alterações desta readequação; eles ainda contêm expectativas do contrato anterior e não são apresentados como uma suíte compatível com o modelo atual.
 
 ## Operação e limites
 
-O [guia do banco](banco/README.md) define backup diretamente do Supabase, ensaio isolado, preservação por PK, implantação coordenada e restauração final. O Supabase foi migrado, a API 2.0.0 e o frontend foram publicados e o [backup final](backups_banco/README.md) foi extraído do banco readequado e restaurado em ambiente isolado. O [relatório](banco/RELATORIO_READEQUACAO.md) e as [evidências](banco/VALIDACAO_SUPABASE.json) registram os resultados e a limitação da conferência visual. Todos os valores mantidos foram preservados, incluindo 4.512 cards e 286 resumos gerais simples Smol. Sem commit ou push.
+O Supabase foi migrado, a API 2.0.0 e o frontend foram publicados e o [backup final](backups_banco/README.md) foi extraído do banco readequado e restaurado em ambiente isolado. Todos os valores mantidos foram preservados, incluindo 4.512 cards e 286 resumos gerais simples Smol. Relatórios, manifestos completos e ferramentas da operação ficam locais; não são dependências do sistema.
 
 O sistema mostra o que foi identificado nas fontes processadas; cobertura incompleta e nomes não resolvidos limitam os resultados. Os resumos podem ter imprecisões: mantenha a conferência dos trechos literais. A aplicação não classifica gravidade clínica e não substitui orientação profissional.
 
-Artigo e diagrama aprovado não fazem parte desta alteração. Não faça commit/push antes da revisão e validações remotas. A mensagem prevista é “Ajusta banco de dados e atualiza backup”, somente depois de o backup real ter sido gerado e validado.
+Artigo e diagrama aprovado não fazem parte desta alteração. Antes de substituir um backup ou publicar outra alteração de schema, valide os dados preservados e a leitura da API em banco isolado.

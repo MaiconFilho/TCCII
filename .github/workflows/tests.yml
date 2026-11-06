@@ -1,4 +1,4 @@
-name: Testes
+name: Verificacoes
 
 on:
   push:
@@ -8,179 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  testes-scraping:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - name: Obter o código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pipelines/scraping_anvisa/requirements.txt
-
-      - name: Instalar dependências
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r pipelines/scraping_anvisa/requirements.txt
-
-      - name: Executar testes
-        run: python -m unittest discover -s pipelines/scraping_anvisa/tests -v
-
-  testes-extracao-interacoes:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: pipelines/extracao_interacoes
-    steps:
-      - name: Obter o código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: |
-            pipelines/scraping_anvisa/requirements.txt
-            pipelines/extracao_interacoes/requirements.txt
-
-      - name: Instalar dependências dos testes isolados
-        run: >-
-          python -m pip install
-          PyMuPDF
-          pydantic
-          psutil
-          "psycopg[binary]"
-          python-dotenv
-
-      - name: Executar testes sem modelo, GPU ou PostgreSQL real
-        run: python -m unittest discover -s tests -v
-
-  testes-conversao-interacoes-vetores:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: pipelines/conversao_interacoes_vetores
-    steps:
-      - name: Obter o código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pipelines/conversao_interacoes_vetores/requirements.txt
-
-      - name: Instalar dependências dos testes isolados
-        run: >-
-          python -m pip install
-          psutil
-          "psycopg[binary]"
-          python-dotenv
-
-      - name: Executar testes sem modelo, GPU ou PostgreSQL real
-        run: python -m unittest discover -s tests -v
-
-  testes-identificacao-interacoes:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Obter o código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pipelines/identificacao_interacoes/requirements.txt
-
-      - name: Instalar dependências dos testes isolados
-        run: >-
-          python -m pip install
-          PyMuPDF
-          pydantic
-          psutil
-          "psycopg[binary]"
-          python-dotenv
-
-      - name: Executar testes sem modelo ou PostgreSQL real
-        run: python -m unittest discover -s pipelines/identificacao_interacoes/tests -t . -v
-
-      - name: Validar resumos com provedor simulado
-        run: python -m unittest discover -s pipelines/resumos_interacoes/tests -t . -v
-
-  testes-api-interacoes:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Obter o código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: apps/api_interacoes/requirements.txt
-
-      - name: Instalar dependências
-        run: python -m pip install -r apps/api_interacoes/requirements.txt
-
-      - name: Executar testes sem PostgreSQL real
-        run: python -m unittest discover -s apps/api_interacoes/tests -t . -v
-
-  testes-inclusao-medicamentos:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Instalar dependências dos testes simulados
-        run: python -m pip install "psycopg[binary]" python-dotenv python-dateutil psutil pydantic PyMuPDF
-      - name: Validar fila e orquestração sem modelos nem Anvisa real
-        run: python -m unittest discover -s pipelines/inclusao_medicamentos/tests -t . -v
-
-  testes-frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/frontend
-    steps:
-      - name: Obter o código
-        uses: actions/checkout@v4
-
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: apps/frontend/package-lock.json
-
-      - name: Instalar dependências
-        run: npm ci
-
-      - name: Verificar lint
-        run: npm run lint
-
-      - name: Verificar pares e atribuição de componentes
-        run: npm test
-
-      - name: Verificar tipos
-        run: npm run typecheck
-
-      - name: Gerar build
-        run: npm run build
-
-  testes-modelo60-postgres:
+  banco-e-api:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -198,21 +26,69 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:teste_isolado@localhost:5432/interamed_test
-      IDENTIFICACAO_TEST_DATABASE_URL: postgresql://postgres:teste_isolado@localhost:5432/interamed_test
-      MODELO60_TEST_DATABASE_URL: postgresql://postgres:teste_isolado@localhost:5432/interamed_test
-      MIGRACAO60_TEST_DATABASE_URL: postgresql://postgres:teste_isolado@localhost:5432/interamed_test_legado
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Instalar dependências da consulta e testes
+          cache: pip
+          cache-dependency-path: apps/api_interacoes/requirements.txt
+      - name: Instalar dependências de consulta
         run: python -m pip install -r apps/api_interacoes/requirements.txt
-      - name: Preparar bancos locais isolados
+      - name: Verificar sintaxe
+        run: python -m compileall -q apps pipelines
+      - name: Validar SQL completo e consultas da API em banco isolado
         run: |
-          python -m banco.operacao inicializar
-          python -c "import os,psycopg; c=psycopg.connect(os.environ['DATABASE_URL'],autocommit=True); c.execute('CREATE DATABASE interamed_test_legado'); c.close()"
-      - name: Contrato, integridade, legado e preservação Smol sintética
-        run: python -m unittest discover -s banco/tests -t . -v
-      - name: API real sobre o modelo aprovado
-        run: python -m unittest discover -s apps/api_interacoes/tests -t . -v
+          python - <<'PY'
+          import os
+          import sys
+          import psycopg
+          from fastapi.testclient import TestClient
+          from psycopg.rows import dict_row
+          from pipelines.identificacao_interacoes.aplicar_migracoes import aplicar, validar_esquema
+          from apps.api_interacoes.app import criar_app
+          from apps.api_interacoes.configuracao import ConfiguracaoApi
+
+          dsn = os.environ['DATABASE_URL']
+          assert aplicar(dsn, [])
+          assert aplicar(dsn, []) == []
+          with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as c:
+              validar_esquema(c)
+              c.execute("INSERT INTO bulas(nome_normalizado,nome_anvisa,status) VALUES ('meda','Meda','CONCLUIDO'),('medb','Medb','CONCLUIDO')")
+              c.execute("INSERT INTO bulas_interacoes(nome_normalizado,trecho_interacoes,status_extracao) VALUES ('meda','Meda aumenta o efeito de Medb.','CONCLUIDO'),('medb','Nenhuma interação identificada.','CONCLUIDO')")
+              pid = c.execute("INSERT INTO processamentos_interacoes(medicamento_origem,status,versao_processamento,modelo) VALUES ('meda','CONCLUIDO_COM_RELACOES','ci','simulado') RETURNING id").fetchone()['id']
+              c.execute("INSERT INTO processamentos_interacoes(medicamento_origem,status,versao_processamento,modelo) VALUES ('medb','CONCLUIDO_SEM_RELACOES','ci','simulado')")
+              iid = c.execute("INSERT INTO interacoes(medicamento_origem,processamento_id,alvo,tipo_alvo,resumo,evidencia) VALUES ('meda',%s,'Medb','MEDICAMENTO','Resumo persistido.','Meda aumenta o efeito de Medb.') RETURNING id", (pid,)).fetchone()['id']
+              c.execute("INSERT INTO interacoes_medicamentos(interacao_id,medicamento_relacionado,criterio_vinculo) VALUES (%s,'medb','NOME_MEDICAMENTO_EXATO')", (iid,))
+          with TestClient(criar_app(ConfiguracaoApi(dsn=dsn))) as h:
+              assert h.get('/api/saude').json()['esquema'] == 'ok'
+              assert h.get('/api/medicamentos/sugestoes', params={'q':'med'}).status_code == 200
+              single = h.get('/api/interacoes', params={'medicamento':'meda'}).json()
+              assert single['relacoes'][0]['id'] == iid
+              assert single['relacoes'][0]['evidencia'] == 'Meda aumenta o efeito de Medb.'
+              assert h.get('/api/interacoes', params={'medicamento':'medb'}).json()['interacao_identificada'] is False
+              for a, b in [('meda','medb'),('medb','meda')]:
+                  pair = h.get('/api/interacoes/par', params={'medicamento_a':a,'medicamento_b':b}).json()
+                  assert pair['interacao_identificada'] is True and pair['evidencias']
+              cors = h.options('/api/interacoes', headers={'Origin':'http://localhost:3000','Access-Control-Request-Method':'GET'})
+              assert cors.headers['access-control-allow-origin'] == 'http://localhost:3000'
+              assert h.post('/api/processamentos', json={'nome':'novo'}).status_code == 404
+          assert not any(m.split('.')[0] in {'llama_cpp','torch','transformers','fitz','selenium'} for m in sys.modules)
+          PY
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build

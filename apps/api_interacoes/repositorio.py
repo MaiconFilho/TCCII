@@ -18,7 +18,7 @@ from collections.abc import Iterable, Sequence
 from psycopg import errors
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
-from banco.operacao import MODELO
+from pipelines.identificacao_interacoes.aplicar_migracoes import MODELO
 
 from pipelines.identificacao_interacoes.modelos import chave_bloqueio, partes_chave_bloqueio
 from pipelines.resumos_interacoes.rastreabilidade import entrada_card, entrada_geral, simples_atual

@@ -1,7 +1,7 @@
 > Experimento legado fora do modelo aprovado: o ponto de entrada está desativado.
 > Não integra API, consulta, instalação ou migração do modelo60. O código abaixo
 > documenta o experimento anterior; não execute seus inicializadores sobre a base
-> final. Dados independentes existentes foram preservados. Consulte [o guia atual](../../banco/README.md).
+> final. Dados independentes existentes foram preservados. Consulte [o modelo atual](../../README.md#banco).
 
 # Inclusão de medicamentos sob demanda
 

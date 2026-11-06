@@ -49,12 +49,12 @@ class TestVigenciaAditiva(unittest.TestCase):
         pid = self.gravar()
         self.repo.invalidar_processamento(pid, 'Resultado reconhecido como incorreto no teste.')
         self.assertIsNone(self.repo.processamento_vigente(self.nome))
-        linha = self.con.execute('SELECT invalidado_em FROM processamentos_interacoes WHERE id=%s', (pid,)).fetchone()
+        linha = self.con.execute('SELECT invalidado_em,motivo_invalidacao FROM processamentos_interacoes WHERE id=%s', (pid,)).fetchone()
         self.assertIsNotNone(linha['invalidado_em'])
+        self.assertTrue(linha['motivo_invalidacao'])
 
     def test_mudanca_de_fonte_invalida_compatibilidade(self):
         self.gravar()
-        self.con.execute('UPDATE processamentos_interacoes SET invalidado_em=now() WHERE medicamento_origem=%s',(self.nome,))
         self.con.execute('UPDATE bulas_interacoes SET trecho_interacoes=%s WHERE nome_normalizado=%s',
                          ('Cafeína reduz a absorção.', self.nome))
         self.assertIsNone(self.repo.processamento_vigente(self.nome))
