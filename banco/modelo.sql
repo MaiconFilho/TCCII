@@ -1,5 +1,5 @@
 -- Modelo relacional aprovado: cinco tabelas, 60 campos. PostgreSQL >= 15.
--- Instalação nova somente; para base existente use banco.operacao.
+-- Instalação nova somente. Não execute sobre uma base existente com dados.
 
 CREATE TABLE public.bulas (
     nome_normalizado TEXT NOT NULL,
